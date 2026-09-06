@@ -9,13 +9,15 @@ public partial class AbyssField : Node3D
     private float _duration;
     private float _elapsed;
     private float _tickElapsed;
+    private HealthComponent _primaryTarget;
 
-    public void Configure(Node3D caster, float radius, float damagePerTick, float duration)
+    public void Configure(Node3D caster, float radius, float damagePerTick, float duration, HealthComponent primaryTarget = null)
     {
         _caster = caster;
         _radius = radius;
         _damagePerTick = damagePerTick;
         _duration = duration;
+        _primaryTarget = primaryTarget;
         AddToGroup("abyss_fields");
         caster.GetNodeOrNull<HealthComponent>("HealthComponent")?.ApplyDamageReduction(0.85f, duration);
         caster.GetNodeOrNull<AbyssEnergyComponent>("AbyssEnergyComponent")?.ApplyGenerationBoost(1.5f, duration);
@@ -46,13 +48,23 @@ public partial class AbyssField : Node3D
     private void DamageEnemies()
     {
         if (!GodotObject.IsInstanceValid(_caster)) return;
+        if (_primaryTarget != null && GodotObject.IsInstanceValid(_primaryTarget) && _primaryTarget.IsAlive)
+        {
+            Node3D targetOwner = _primaryTarget.GetParent<Node3D>();
+            Vector3 targetOffset = targetOwner.GlobalPosition - GlobalPosition;
+            targetOffset.Y = 0.0f;
+            if (targetOffset.LengthSquared() <= _radius * _radius)
+            {
+                AbyssPassive.DealAbilityDamage(_caster, _primaryTarget, _damagePerTick);
+            }
+        }
         foreach (Node node in GetTree().GetNodesInGroup("combat_units"))
         {
             if (node is not Node3D unit || !CombatTeams.IsEnemy(_caster, unit)) continue;
             HealthComponent health = unit.GetNodeOrNull<HealthComponent>("HealthComponent");
             Vector3 offset = unit.GlobalPosition - GlobalPosition;
             offset.Y = 0;
-            if (health != null && health.IsAlive && offset.LengthSquared() <= _radius * _radius)
+            if (health != null && health != _primaryTarget && health.IsAlive && offset.LengthSquared() <= _radius * _radius)
             {
                 AbyssPassive.DealAbilityDamage(_caster, health, _damagePerTick);
                 if (unit is EnemyController enemy) enemy.ApplySlow(0.85f, 1.15f);

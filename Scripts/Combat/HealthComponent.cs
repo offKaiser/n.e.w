@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 public partial class HealthComponent : Node
@@ -6,52 +7,75 @@ public partial class HealthComponent : Node
     public float MaxHealth = 100.0f;
 
     [Export]
+    public bool EnableLegacyPresentation = true;
+
+    [Export]
     public NodePath HealthLabelPath;
 
-    [Export]
-    public int ExperienceReward;
-
-    [Export]
-    public int GoldReward;
 
     public float CurrentHealth { get; private set; }
-    public bool IsAlive => CurrentHealth > 0.0f;
+    public bool IsAlive => !_isDead;
+
+    public event Action<float, float> HealthChanged;
+    public event Action<float, Node> Damaged;
+    public event Action<Node> Died;
 
     private Label3D _healthLabel;
     private Node _lastDamageSource;
     private float _damageTakenMultiplier = 1.0f;
     private double _damageReductionEndTime;
+    private bool _isDead;
 
     public override void _Ready()
     {
         CurrentHealth = MaxHealth;
-        _healthLabel = GetNodeOrNull<Label3D>(HealthLabelPath);
-        UpdateHealthLabel();
+        _isDead = false;
+        if (EnableLegacyPresentation)
+        {
+            _healthLabel = GetNodeOrNull<Label3D>(HealthLabelPath);
+        }
+        NotifyHealthChanged();
     }
 
     public void TakeDamage(float damage, Node source = null)
     {
-        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        if (network != null && network.SessionActive && !network.IsServer)
+        if (IsRemoteMultiplayerClient())
         {
-            network.RequestDamage(GetParent().GetPath(), damage, source?.GetPath() ?? new NodePath());
+            // Remote clients never authoritatively apply combat results. The
+            // host's state/event replication supplies this presentation state.
             return;
         }
 
-        ApplyDamage(damage, source, network);
+        ApplyDamage(damage, source);
+    }
+
+    public void Heal(float amount)
+    {
+        if (!IsAlive || amount <= 0.0f)
+        {
+            return;
+        }
+
+        CurrentHealth = Mathf.Min(CurrentHealth + amount, MaxHealth);
+        NotifyHealthChanged();
     }
 
     public void SynchronizeHealth(float health)
     {
-        CurrentHealth = Mathf.Max(health, 0.0f);
-        UpdateHealthLabel();
-        if (!IsAlive)
+        if (_isDead)
         {
-            DefeatOwner();
+            return;
+        }
+
+        CurrentHealth = Mathf.Clamp(health, 0.0f, MaxHealth);
+        NotifyHealthChanged();
+        if (CurrentHealth <= 0.0f)
+        {
+            Die(null, false);
         }
     }
 
-    private void ApplyDamage(float damage, Node source, NetworkManager network)
+    private void ApplyDamage(float damage, Node source)
     {
         if (!IsAlive || damage <= 0.0f)
         {
@@ -60,23 +84,22 @@ public partial class HealthComponent : Node
 
         _lastDamageSource = source ?? _lastDamageSource;
         if (Time.GetTicksMsec() / 1000.0 >= _damageReductionEndTime) _damageTakenMultiplier = 1.0f;
-        CurrentHealth = Mathf.Max(CurrentHealth - damage * _damageTakenMultiplier, 0.0f);
-        UpdateHealthLabel();
+        float appliedDamage = damage * _damageTakenMultiplier;
+        CurrentHealth = Mathf.Max(CurrentHealth - appliedDamage, 0.0f);
+        Damaged?.Invoke(appliedDamage, source);
+        NotifyHealthChanged();
 
-        if (!IsAlive)
+        if (CurrentHealth <= 0.0f)
         {
-            RewardKiller();
-            DefeatOwner();
+            Die(_lastDamageSource, true);
         }
-
-        network?.BroadcastHealth(GetParent().GetPath(), CurrentHealth);
     }
 
     public void SetMaxHealth(float newMaxHealth, bool refill = true)
     {
-        MaxHealth = newMaxHealth;
+        MaxHealth = Mathf.Max(newMaxHealth, 1.0f);
         CurrentHealth = refill ? MaxHealth : Mathf.Min(CurrentHealth, MaxHealth);
-        UpdateHealthLabel();
+        NotifyHealthChanged();
     }
 
     public void ApplyDamageReduction(float damageMultiplier, float duration)
@@ -85,31 +108,25 @@ public partial class HealthComponent : Node
         _damageReductionEndTime = Mathf.Max(_damageReductionEndTime, Time.GetTicksMsec() / 1000.0 + duration);
     }
 
-    private void RewardKiller()
+    private void Die(Node source, bool grantLegacyRewards)
     {
-        GetParent().GetNodeOrNull<AbyssMark>("AbyssMark")?.RewardIfKilledBy(_lastDamageSource);
-        foreach (Node node in GetTree().GetNodesInGroup("abyss_fields"))
+        if (_isDead)
         {
-            if (node is AbyssField field) field.ExtendIfOwnedBy(_lastDamageSource);
+            return;
         }
-        Node recipient = _lastDamageSource;
-        while (recipient != null)
-        {
-            ProgressionComponent progression = recipient.GetNodeOrNull<ProgressionComponent>("ProgressionComponent");
-            GoldComponent gold = recipient.GetNodeOrNull<GoldComponent>("GoldComponent");
-            if (progression != null || gold != null)
-            {
-                progression?.GainExperience(ExperienceReward);
-                gold?.GainGold(GoldReward);
-                return;
-            }
 
-            recipient = recipient.GetParent();
+        _isDead = true;
+        Died?.Invoke(source);
+
+        if (EnableLegacyPresentation)
+        {
+            DefeatOwner();
         }
     }
 
-    private void UpdateHealthLabel()
+    private void NotifyHealthChanged()
     {
+        HealthChanged?.Invoke(CurrentHealth, MaxHealth);
         if (_healthLabel != null)
         {
             _healthLabel.Text = $"{Mathf.CeilToInt(CurrentHealth)} / {Mathf.CeilToInt(MaxHealth)} HP";
@@ -130,5 +147,11 @@ public partial class HealthComponent : Node
             collisionObject.CollisionLayer = 0;
             collisionObject.CollisionMask = 0;
         }
+    }
+
+    private bool IsRemoteMultiplayerClient()
+    {
+        MultiplayerPeer peer = Multiplayer.MultiplayerPeer;
+        return peer != null && peer.GetConnectionStatus() == MultiplayerPeer.ConnectionStatus.Connected && !Multiplayer.IsServer();
     }
 }

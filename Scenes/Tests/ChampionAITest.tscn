@@ -1,0 +1,139 @@
+[gd_scene load_steps=25 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Heroes/HeroController.cs" id="1_hero"]
+[ext_resource type="Script" path="res://Scripts/AI/EnemyController.cs" id="2_enemy"]
+[ext_resource type="Script" path="res://Scripts/Heroes/MovementComponent.cs" id="3_movement"]
+[ext_resource type="Script" path="res://Scripts/Heroes/TargetingComponent.cs" id="4_targeting"]
+[ext_resource type="Script" path="res://Scripts/Combat/CombatComponent.cs" id="5_combat"]
+[ext_resource type="Script" path="res://Scripts/Combat/HealthComponent.cs" id="6_health"]
+[ext_resource type="Script" path="res://Scripts/Heroes/ManaComponent.cs" id="7_mana"]
+[ext_resource type="Script" path="res://Scripts/Abilities/AbilityController.cs" id="8_controller"]
+[ext_resource type="Script" path="res://Scripts/Heroes/AbyssEnergyComponent.cs" id="9_energy"]
+[ext_resource type="Script" path="res://Scripts/Abilities/AreaDamageAbility.cs" id="10_q"]
+[ext_resource type="Script" path="res://Scripts/Abilities/SlowAbility.cs" id="11_w"]
+[ext_resource type="Script" path="res://Scripts/Abilities/DashAbility.cs" id="12_e"]
+[ext_resource type="Script" path="res://Scripts/Abilities/AbyssFieldAbility.cs" id="13_r"]
+[ext_resource type="Script" path="res://Scripts/Abilities/NyxaraGrenadeAbility.cs" id="14_nq"]
+[ext_resource type="Script" path="res://Scripts/Abilities/NyxaraFuryAbility.cs" id="15_nw"]
+[ext_resource type="Script" path="res://Scripts/Abilities/NyxaraDashAbility.cs" id="16_ne"]
+[ext_resource type="Script" path="res://Scripts/Abilities/NyxaraCannonAbility.cs" id="17_nr"]
+[ext_resource type="Script" path="res://Scripts/Heroes/NyxaraPassive.cs" id="18_passive"]
+
+[sub_resource type="BoxMesh" id="ground_mesh"]
+size = Vector3(40, 0.3, 30)
+[sub_resource type="BoxShape3D" id="ground_shape"]
+size = Vector3(40, 0.3, 30)
+[sub_resource type="CapsuleShape3D" id="champion_shape"]
+radius = 0.45
+height = 1.8
+[sub_resource type="CapsuleMesh" id="champion_mesh"]
+radius = 0.45
+height = 1.8
+[sub_resource type="StandardMaterial3D" id="hero_material"]
+albedo_color = Color(0.38, 0.08, 0.78, 1)
+[sub_resource type="StandardMaterial3D" id="nyxara_material"]
+albedo_color = Color(0.85, 0.12, 0.22, 1)
+[sub_resource type="StandardMaterial3D" id="ground_material"]
+albedo_color = Color(0.08, 0.12, 0.1, 1)
+
+[node name="ChampionAITest" type="Node3D"]
+[node name="Ground" type="StaticBody3D" parent="."]
+[node name="Mesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("ground_mesh")
+material_override = SubResource("ground_material")
+[node name="Collision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("ground_shape")
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -30, 0)
+light_energy = 1.3
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 16, 16)
+current = true
+
+[node name="NyrVela" type="CharacterBody3D" parent="."]
+position = Vector3(-5, 0.9, 0)
+script = ExtResource("1_hero")
+[node name="Collision" type="CollisionShape3D" parent="NyrVela"]
+shape = SubResource("champion_shape")
+[node name="Mesh" type="MeshInstance3D" parent="NyrVela"]
+mesh = SubResource("champion_mesh")
+material_override = SubResource("hero_material")
+[node name="MovementComponent" type="Node" parent="NyrVela"]
+script = ExtResource("3_movement")
+[node name="TargetingComponent" type="Node" parent="NyrVela"]
+script = ExtResource("4_targeting")
+[node name="CombatComponent" type="Node" parent="NyrVela"]
+script = ExtResource("5_combat")
+AttackDamage = 25.0
+[node name="HealthComponent" type="Node" parent="NyrVela"]
+script = ExtResource("6_health")
+MaxHealth = 520.0
+EnableLegacyRewards = false
+EnableLegacyPresentation = true
+[node name="ManaComponent" type="Node" parent="NyrVela"]
+script = ExtResource("7_mana")
+MaxMana = 300.0
+[node name="AbyssEnergyComponent" type="Node" parent="NyrVela"]
+script = ExtResource("9_energy")
+[node name="AbilityQ" type="Node" parent="NyrVela"]
+script = ExtResource("10_q")
+EnableLegacyVfx = false
+[node name="AbilityW" type="Node" parent="NyrVela"]
+script = ExtResource("11_w")
+EnableLegacyVfx = false
+[node name="AbilityE" type="Node" parent="NyrVela"]
+script = ExtResource("12_e")
+EnableLegacyVfx = false
+[node name="AbilityR" type="Node" parent="NyrVela"]
+script = ExtResource("13_r")
+[node name="AbilityController" type="Node" parent="NyrVela"]
+script = ExtResource("8_controller")
+
+[node name="Nyxara" type="CharacterBody3D" parent="."]
+position = Vector3(6, 0.9, 0)
+script = ExtResource("2_enemy")
+[node name="Collision" type="CollisionShape3D" parent="Nyxara"]
+shape = SubResource("champion_shape")
+[node name="Mesh" type="MeshInstance3D" parent="Nyxara"]
+mesh = SubResource("champion_mesh")
+material_override = SubResource("nyxara_material")
+[node name="MovementComponent" type="Node" parent="Nyxara"]
+script = ExtResource("3_movement")
+Speed = 4.0
+[node name="TargetingComponent" type="Node" parent="Nyxara"]
+script = ExtResource("4_targeting")
+[node name="CombatComponent" type="Node" parent="Nyxara"]
+script = ExtResource("5_combat")
+AttackDamage = 10.0
+AttackCooldown = 1.0
+[node name="HealthComponent" type="Node" parent="Nyxara"]
+script = ExtResource("6_health")
+MaxHealth = 560.0
+EnableLegacyRewards = false
+EnableLegacyPresentation = true
+[node name="ManaComponent" type="Node" parent="Nyxara"]
+script = ExtResource("7_mana")
+MaxMana = 300.0
+[node name="AbilityQ" type="Node" parent="Nyxara"]
+script = ExtResource("14_nq")
+Cooldown = 8.0
+ManaCost = 35.0
+Range = 8.0
+[node name="AbilityW" type="Node" parent="Nyxara"]
+script = ExtResource("15_nw")
+Cooldown = 14.0
+ManaCost = 30.0
+[node name="AbilityE" type="Node" parent="Nyxara"]
+script = ExtResource("16_ne")
+Cooldown = 11.0
+ManaCost = 40.0
+Range = 9.0
+[node name="AbilityR" type="Node" parent="Nyxara"]
+script = ExtResource("17_nr")
+Cooldown = 24.0
+ManaCost = 90.0
+Range = 12.0
+[node name="AbilityController" type="Node" parent="Nyxara"]
+script = ExtResource("8_controller")
+[node name="NyxaraPassive" type="Node" parent="Nyxara"]
+script = ExtResource("18_passive")

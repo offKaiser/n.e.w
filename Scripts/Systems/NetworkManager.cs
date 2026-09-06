@@ -8,6 +8,11 @@ public partial class NetworkManager : Node
     private Label _statusLabel;
     private bool _sessionStarted;
     private long _nextMinionId;
+    public NetworkEntityRegistry EntityRegistry { get; } = new();
+    public NetworkPeerOwnership PeerOwnership { get; } = new();
+    public NetworkIntentRouter IntentRouter { get; private set; }
+    public NetworkStateReplicator StateReplicator { get; private set; }
+    public NetworkPresentationReplicator PresentationReplicator { get; private set; }
 
     public bool SessionActive => _sessionStarted && IsNetworkActive;
     public bool IsServer => IsNetworkActive && Multiplayer.IsServer();
@@ -30,6 +35,12 @@ public partial class NetworkManager : Node
         Multiplayer.ServerDisconnected += OnServerDisconnected;
 
         CreateStatusLabel();
+        IntentRouter = new NetworkIntentRouter { Name = "NetworkIntentRouter" };
+        AddChild(IntentRouter);
+        StateReplicator = new NetworkStateReplicator { Name = "NetworkStateReplicator" };
+        AddChild(StateReplicator);
+        PresentationReplicator = new NetworkPresentationReplicator { Name = "NetworkPresentationReplicator" };
+        AddChild(PresentationReplicator);
         GetLocalHero()?.SetMultiplayerAuthority(1);
         TryJoinFromCommandLine();
     }
@@ -63,6 +74,8 @@ public partial class NetworkManager : Node
 
         Multiplayer.MultiplayerPeer = peer;
         _sessionStarted = true;
+        RegisterHostPlayer();
+        RegisterFixedAuthorityEntities();
         SetStatus($"SERVIDOR LAN ativo na porta {Port}\nAguardando jogadores...");
     }
 
@@ -104,10 +117,11 @@ public partial class NetworkManager : Node
     {
         if (IsServer)
         {
-            SpawnPlayer(peerId);
-            RpcId(peerId, nameof(SpawnPlayer), peerId);
-            SynchronizeExistingMinions(peerId);
-            SynchronizeExistingState(peerId);
+            int entityId = CreateAuthoritativePlayer(peerId);
+            if (entityId > 0) SynchronizeExistingPlayers(peerId);
+            SynchronizeSceneIdentityReplicas(peerId);
+            StateReplicator.SendPlayerSnapshots(peerId);
+            StateReplicator.SendWorldSnapshots(peerId);
         }
 
         SetStatus($"Jogador {peerId} conectado.");
@@ -115,10 +129,14 @@ public partial class NetworkManager : Node
 
     private void OnPeerDisconnected(long peerId)
     {
-        RemovePlayer(peerId);
+        int entityId = 0;
+        PeerOwnership.TryGetControlledEntityId(peerId, out entityId);
+        PeerOwnership.Remove(peerId);
+        StateReplicator?.ForgetAuthoritativePlayer(entityId);
+        RemovePlayer(peerId, entityId);
         if (IsServer)
         {
-            Rpc(nameof(RemovePlayer), peerId);
+            Rpc(nameof(RemovePlayer), peerId, entityId);
         }
         SetStatus($"Jogador {peerId} desconectou.");
     }
@@ -145,6 +163,8 @@ public partial class NetworkManager : Node
     {
         // Prevent gameplay nodes from issuing RPCs while Godot tears down the peer.
         _sessionStarted = false;
+        EntityRegistry.Clear();
+        PeerOwnership.Clear();
     }
 
     private void CreateStatusLabel()
@@ -165,346 +185,31 @@ public partial class NetworkManager : Node
         GD.Print(message);
     }
 
-    public void PublishPlayerTransform(string playerName, Vector3 position, Vector3 rotation)
-    {
-        if (!SessionActive)
-        {
-            return;
-        }
-
-        Rpc(nameof(ReceivePlayerTransform), playerName, position, rotation);
-    }
-
     public string AllocateMinionName() => $"NetworkMinion_{++_nextMinionId}";
 
-    public void ReplicateMinionSpawn(MinionController minion)
+    public int GetEntityId(Node node) => node?.GetNodeOrNull<NetworkIdentity>("NetworkIdentity")?.NetworkEntityId ?? 0;
+
+    public bool IsControlledEntity(HeroController hero)
     {
-        if (SessionActive && IsServer)
-            Rpc(nameof(SpawnNetworkMinion), minion.Name, (int)minion.Team, (int)minion.Type, minion.LaneDirection, minion.GlobalPosition);
+        int entityId = GetEntityId(hero);
+        return entityId > 0 && PeerOwnership.TryGetPeerForEntity(entityId, out _);
     }
 
-    public void PublishMinionTransform(string minionName, Vector3 position, Vector3 rotation)
+    public bool TryResolveControlledEntity(long peerId, out HeroController hero)
     {
-        if (SessionActive && IsServer) Rpc(nameof(ReceiveMinionTransform), minionName, position, rotation);
+        hero = null;
+        return PeerOwnership.TryGetControlledEntityId(peerId, out int entityId) &&
+            EntityRegistry.TryResolve(entityId, out Node node) && (hero = node as HeroController) != null;
     }
 
-    public void PublishEnemyTransform(string enemyName, Vector3 position, Vector3 rotation)
-    {
-        if (SessionActive && IsServer) Rpc(nameof(ReceiveEnemyTransform), enemyName, position, rotation);
-    }
-
-    public void BroadcastTimedVfx(Vector3 position, Color color, float radius, float duration)
-    {
-        if (SessionActive && IsServer) Rpc(nameof(ReceiveTimedVfx), position, color, radius, duration);
-    }
-
-    public void BroadcastBeamVfx(Vector3 from, Vector3 to, Color color, float width, float duration)
-    {
-        if (SessionActive && IsServer) Rpc(nameof(ReceiveBeamVfx), from, to, color, width, duration);
-    }
-
-    public void RequestDamage(NodePath targetPath, float damage, NodePath sourcePath)
-    {
-        if (!SessionActive)
-        {
-            return;
-        }
-
-        if (IsServer)
-        {
-            ApplyDamageRequest(targetPath, damage, sourcePath);
-        }
-        else
-        {
-            RpcId(1, nameof(ApplyDamageRequest), targetPath, damage, sourcePath);
-        }
-    }
-
-    public void BroadcastHealth(NodePath targetPath, float health)
-    {
-        if (SessionActive && IsServer)
-        {
-            Rpc(nameof(ReceiveHealth), targetPath, health);
-        }
-    }
-
-    public void RequestManaSpend(NodePath heroPath, float amount)
-    {
-        if (!SessionActive)
-        {
-            return;
-        }
-
-        if (IsServer)
-        {
-            ApplyManaSpendRequest(heroPath, amount);
-        }
-        else
-        {
-            RpcId(1, nameof(ApplyManaSpendRequest), heroPath, amount);
-        }
-    }
-
-    public void RequestAbilityCast(HeroController hero, string slot, HealthComponent target)
-    {
-        if (!SessionActive) return;
-        NodePath targetPath = target?.GetParent().GetPath() ?? new NodePath();
-        if (IsServer)
-            ApplyAbilityCast(hero.GetPath(), slot, targetPath);
-        else
-            RpcId(1, nameof(ApplyAbilityCast), hero.GetPath(), slot, targetPath);
-    }
-
-    public void RequestAbilityUpgrade(HeroController hero, string slot)
-    {
-        if (!SessionActive) return;
-        if (IsServer) ApplyAbilityUpgrade(hero.GetPath(), slot);
-        else RpcId(1, nameof(ApplyAbilityUpgrade), hero.GetPath(), slot);
-    }
-
-    public void BroadcastMana(NodePath heroPath, float mana)
-    {
-        if (SessionActive && IsServer)
-        {
-            Rpc(nameof(ReceiveMana), heroPath, mana);
-        }
-    }
-
-    public void BroadcastProgression(NodePath componentPath, int level, int experience, int skillPoints)
-    {
-        if (SessionActive && IsServer)
-            Rpc(nameof(ReceiveProgression), componentPath, level, experience, skillPoints);
-    }
-
-    public void BroadcastGold(NodePath componentPath, int gold)
-    {
-        if (SessionActive && IsServer)
-            Rpc(nameof(ReceiveGold), componentPath, gold);
-    }
-
-    public void BroadcastAbyssEnergy(NodePath componentPath, float energy)
-    {
-        if (SessionActive && IsServer)
-            Rpc(nameof(ReceiveAbyssEnergy), componentPath, energy);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer)]
-    private void ApplyManaSpendRequest(NodePath heroPath, float amount)
-    {
-        if (!IsServer)
-        {
-            return;
-        }
-
-        ManaComponent mana = GetTree().Root.GetNodeOrNull<Node>(heroPath)?.GetNodeOrNull<ManaComponent>("ManaComponent");
-        if (mana != null && mana.SpendMana(amount))
-        {
-            BroadcastMana(heroPath, mana.CurrentMana);
-        }
-    }
-
-    [Rpc]
-    private void ReceiveMana(NodePath heroPath, float mana)
-    {
-        GetTree().Root.GetNodeOrNull<Node>(heroPath)?.GetNodeOrNull<ManaComponent>("ManaComponent")?.SynchronizeMana(mana);
-    }
-
-    [Rpc]
-    private void ReceiveProgression(NodePath componentPath, int level, int experience, int skillPoints)
-    {
-        GetTree().Root.GetNodeOrNull<ProgressionComponent>(componentPath)?.SynchronizeProgression(level, experience, skillPoints);
-    }
-
-    [Rpc]
-    private void ReceiveGold(NodePath componentPath, int gold)
-    {
-        GetTree().Root.GetNodeOrNull<GoldComponent>(componentPath)?.SynchronizeGold(gold);
-    }
-
-    [Rpc]
-    private void ReceiveAbyssEnergy(NodePath componentPath, float energy)
-    {
-        GetTree().Root.GetNodeOrNull<AbyssEnergyComponent>(componentPath)?.SynchronizeEnergy(energy);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer)]
-    private void ApplyDamageRequest(NodePath targetPath, float damage, NodePath sourcePath)
-    {
-        if (!IsServer)
-        {
-            return;
-        }
-
-        Node target = GetTree().Root.GetNodeOrNull<Node>(targetPath);
-        Node source = sourcePath.IsEmpty ? null : GetTree().Root.GetNodeOrNull<Node>(sourcePath);
-        target?.GetNodeOrNull<HealthComponent>("HealthComponent")?.TakeDamage(damage, source);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer)]
-    private void ApplyAbilityCast(NodePath heroPath, string slot, NodePath targetPath)
-    {
-        if (!IsServer) return;
-        HeroController hero = GetTree().Root.GetNodeOrNull<HeroController>(heroPath);
-        if (hero == null) return;
-        long sender = Multiplayer.GetRemoteSenderId();
-        if (sender != 0 && sender != 1 && hero.GetMultiplayerAuthority() != sender) return;
-        HealthComponent target = targetPath.IsEmpty ? null : GetTree().Root.GetNodeOrNull<Node>(targetPath)?.GetNodeOrNull<HealthComponent>("HealthComponent");
-        if (!hero.TryCastAbilityLocal(slot, target)) return;
-        Ability ability = hero.GetAbility(slot);
-        Rpc(nameof(ReceiveAbilityCooldown), hero.Name, slot, ability.RemainingCooldown);
-        Rpc(nameof(ReceiveAbilityTransform), hero.Name, hero.GlobalPosition, hero.Rotation);
-        Vector3 effectPosition = target?.GetParent<Node3D>().GlobalPosition ?? hero.GlobalPosition;
-        Rpc(nameof(ReceiveAbilityVisual), hero.Name, slot, effectPosition);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer)]
-    private void ApplyAbilityUpgrade(NodePath heroPath, string slot)
-    {
-        if (!IsServer) return;
-        HeroController hero = GetTree().Root.GetNodeOrNull<HeroController>(heroPath);
-        if (hero == null) return;
-        long sender = Multiplayer.GetRemoteSenderId();
-        if (sender != 0 && sender != 1 && hero.GetMultiplayerAuthority() != sender) return;
-        if (!hero.TryIncreaseAbilityLocal(slot)) return;
-        Rpc(nameof(ReceiveAbilityRank), hero.Name, slot, hero.GetAbility(slot).Rank);
-    }
-
-    [Rpc]
-    private void ReceiveAbilityCooldown(string heroName, string slot, float remaining)
-    {
-        GetTree().CurrentScene?.GetNodeOrNull<HeroController>(heroName)?.GetAbility(slot)?.SynchronizeCooldown(remaining);
-    }
-
-    [Rpc]
-    private void ReceiveAbilityTransform(string heroName, Vector3 position, Vector3 rotation)
-    {
-        GetTree().CurrentScene?.GetNodeOrNull<HeroController>(heroName)?.ApplyNetworkTransform(position, rotation);
-    }
-
-    [Rpc]
-    private void ReceiveAbilityRank(string heroName, string slot, int rank)
-    {
-        GetTree().CurrentScene?.GetNodeOrNull<HeroController>(heroName)?.GetAbility(slot)?.SynchronizeRank(rank);
-    }
-
-    [Rpc]
-    private void ReceiveAbilityVisual(string heroName, string slot, Vector3 effectPosition)
-    {
-        Node3D scene = GetTree().CurrentScene as Node3D;
-        HeroController hero = scene?.GetNodeOrNull<HeroController>(heroName);
-        if (scene == null || hero == null) return;
-        Color color = new Color(0.42f, 0.05f, 0.95f);
-        if (slot == "W")
-        {
-            BeamVfx beam = new BeamVfx();
-            scene.AddChild(beam);
-            beam.Configure(hero.GlobalPosition + Vector3.Up, effectPosition + Vector3.Up, color, 0.09f, 0.38f);
-            return;
-        }
-        TimedVfx vfx = new TimedVfx();
-        scene.AddChild(vfx);
-        vfx.GlobalPosition = effectPosition + Vector3.Up * 0.35f;
-        float radius = slot == "R" ? 5.0f : slot == "Q" ? 3.0f : 1.8f;
-        float duration = slot == "R" ? 5.0f : 0.65f;
-        vfx.Configure(color, radius, duration);
-    }
-
-    [Rpc]
-    private void ReceiveHealth(NodePath targetPath, float health)
-    {
-        Node target = GetTree().Root.GetNodeOrNull<Node>(targetPath);
-        target?.GetNodeOrNull<HealthComponent>("HealthComponent")?.SynchronizeHealth(health);
-    }
-
-    [Rpc(MultiplayerApi.RpcMode.AnyPeer)]
-    private void ReceivePlayerTransform(string playerName, Vector3 position, Vector3 rotation)
-    {
-        HeroController hero = GetTree().CurrentScene?.GetNodeOrNull<HeroController>(playerName);
-        long sender = Multiplayer.GetRemoteSenderId();
-        if (hero != null && sender != 0 && hero.GetMultiplayerAuthority() != sender)
-        {
-            return;
-        }
-        if (hero != null && !hero.IsMultiplayerAuthority())
-        {
-            hero.ApplyNetworkTransform(position, rotation);
-        }
-    }
-
-    [Rpc]
-    private void SpawnNetworkMinion(string minionName, int team, int type, Vector3 laneDirection, Vector3 position)
-    {
-        Node scene = GetTree().CurrentScene;
-        if (scene == null || scene.GetNodeOrNull<Node>(minionName) != null) return;
-        PackedScene minionScene = GD.Load<PackedScene>("res://Scenes/Units/Minion.tscn");
-        MinionController minion = minionScene.Instantiate<MinionController>();
-        minion.Name = minionName;
-        minion.Configure((MinionTeam)team, laneDirection, (MinionType)type);
-        scene.AddChild(minion);
-        minion.GlobalPosition = position;
-    }
-
-    [Rpc]
-    private void ReceiveMinionTransform(string minionName, Vector3 position, Vector3 rotation)
-    {
-        GetTree().CurrentScene?.GetNodeOrNull<MinionController>(minionName)?.ApplyNetworkTransform(position, rotation);
-    }
-
-    [Rpc]
-    private void ReceiveEnemyTransform(string enemyName, Vector3 position, Vector3 rotation)
-    {
-        GetTree().CurrentScene?.GetNodeOrNull<EnemyController>(enemyName)?.ApplyNetworkTransform(position, rotation);
-    }
-
-    [Rpc]
-    private void ReceiveTimedVfx(Vector3 position, Color color, float radius, float duration)
-    {
-        Node3D scene = GetTree().CurrentScene as Node3D;
-        if (scene == null) return;
-        TimedVfx vfx = new TimedVfx();
-        scene.AddChild(vfx);
-        vfx.GlobalPosition = position;
-        vfx.Configure(color, radius, duration);
-    }
-
-    [Rpc]
-    private void ReceiveBeamVfx(Vector3 from, Vector3 to, Color color, float width, float duration)
-    {
-        Node3D scene = GetTree().CurrentScene as Node3D;
-        if (scene == null) return;
-        BeamVfx beam = new BeamVfx();
-        scene.AddChild(beam);
-        beam.Configure(from, to, color, width, duration);
-    }
-
-    private void SynchronizeExistingMinions(long peerId)
-    {
-        foreach (Node node in GetTree().GetNodesInGroup("minions"))
-        {
-            if (node is MinionController minion)
-                RpcId(peerId, nameof(SpawnNetworkMinion), minion.Name, (int)minion.Team, (int)minion.Type, minion.LaneDirection, minion.GlobalPosition);
-        }
-    }
-
-    private void SynchronizeExistingState(long peerId)
+    private void SynchronizeExistingPlayers(long peerId)
     {
         foreach (Node node in GetTree().GetNodesInGroup("combat_units"))
         {
-            if (node is not Node3D unit) continue;
-            HealthComponent health = unit.GetNodeOrNull<HealthComponent>("HealthComponent");
-            if (health != null) RpcId(peerId, nameof(ReceiveHealth), unit.GetPath(), health.CurrentHealth);
-        }
-        foreach (Node node in GetTree().GetNodesInGroup("heroes"))
-        {
-            if (node is not HeroController hero) continue;
-            ManaComponent mana = hero.GetNodeOrNull<ManaComponent>("ManaComponent");
-            ProgressionComponent progression = hero.GetNodeOrNull<ProgressionComponent>("ProgressionComponent");
-            GoldComponent gold = hero.GetNodeOrNull<GoldComponent>("GoldComponent");
-            AbyssEnergyComponent abyss = hero.GetNodeOrNull<AbyssEnergyComponent>("AbyssEnergyComponent");
-            if (mana != null) RpcId(peerId, nameof(ReceiveMana), hero.GetPath(), mana.CurrentMana);
-            if (progression != null) RpcId(peerId, nameof(ReceiveProgression), progression.GetPath(), progression.Level, progression.Experience, progression.SkillPoints);
-            if (gold != null) RpcId(peerId, nameof(ReceiveGold), gold.GetPath(), gold.Gold);
-            if (abyss != null) RpcId(peerId, nameof(ReceiveAbyssEnergy), abyss.GetPath(), abyss.Energy);
+            if (node is not HeroController hero || hero.Name == "Hero") continue;
+            int entityId = GetEntityId(hero);
+            if (entityId > 0)
+                RpcId(peerId, nameof(SpawnPlayer), (long)hero.GetMultiplayerAuthority(), entityId);
         }
     }
 
@@ -517,19 +222,18 @@ public partial class NetworkManager : Node
         }
     }
 
-    [Rpc]
-    private void SpawnPlayer(long peerId)
+    private int CreateAuthoritativePlayer(long peerId)
     {
         string playerName = $"Hero_{peerId}";
-        if (GetTree().CurrentScene?.GetNodeOrNull<Node>(playerName) != null)
+        if (GetTree().CurrentScene?.GetNodeOrNull<HeroController>(playerName) is HeroController existing)
         {
-            return;
+            return GetEntityId(existing);
         }
 
         HeroController template = GetLocalHero();
         if (template == null)
         {
-            return;
+            return 0;
         }
 
         HeroController player = template.Duplicate() as HeroController;
@@ -537,21 +241,139 @@ public partial class NetworkManager : Node
         player.SetMultiplayerAuthority((int)peerId);
         GetTree().CurrentScene.AddChild(player);
         player.GlobalPosition = new Vector3(-2.0f, 0.0f, 3.0f);
-
-        if (player.IsMultiplayerAuthority())
+        int entityId = RegisterAuthoritativePlayer(player, peerId);
+        if (entityId <= 0)
         {
-            GetTree().CurrentScene.GetNodeOrNull<CameraFollow>("Camera3D")?.SetTarget(player);
+            player.QueueFree();
+            return 0;
         }
+
+        return entityId;
     }
 
-    [Rpc]
-    private void RemovePlayer(long peerId)
+    [Rpc(MultiplayerApi.RpcMode.Authority)]
+    private void SpawnPlayer(long peerId, int entityId)
     {
+        string playerName = $"Hero_{peerId}";
+        if (GetTree().CurrentScene?.GetNodeOrNull<Node>(playerName) != null) return;
+
+        HeroController template = GetLocalHero();
+        if (template == null || entityId <= 0) return;
+
+        HeroController player = template.Duplicate() as HeroController;
+        player.Name = playerName;
+        player.SetMultiplayerAuthority((int)peerId);
+        GetTree().CurrentScene.AddChild(player);
+        player.GlobalPosition = new Vector3(-2.0f, 0.0f, 3.0f);
+        RegisterReplicaEntity(player, entityId);
+        if (player.IsMultiplayerAuthority())
+            GetTree().CurrentScene.GetNodeOrNull<CameraFollow>("Camera3D")?.SetTarget(player);
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority)]
+    private void RemovePlayer(long peerId, int entityId)
+    {
+        if (entityId > 0) EntityRegistry.Unregister(entityId);
         GetTree().CurrentScene?.GetNodeOrNull<Node>($"Hero_{peerId}")?.QueueFree();
+    }
+
+    [Rpc(MultiplayerApi.RpcMode.Authority)]
+    private void RegisterSceneEntityReplica(string sceneNodeName, int entityId)
+    {
+        if (entityId <= 0) return;
+        Node node = GetTree().CurrentScene?.GetNodeOrNull<Node>(sceneNodeName);
+        if (node != null)
+        {
+            if (node is EnemyController enemy) enemy.RemoteRepresentation = true;
+            if (node is TowerController tower) tower.RemoteRepresentation = true;
+            RegisterReplicaEntity(node, entityId);
+        }
     }
 
     private HeroController GetLocalHero()
     {
         return GetTree().CurrentScene?.GetNodeOrNull<HeroController>("Hero");
+    }
+
+    private void RegisterHostPlayer()
+    {
+        HeroController hero = GetLocalHero();
+        if (hero != null) RegisterAuthoritativePlayer(hero, 1);
+    }
+
+    private int RegisterAuthoritativePlayer(HeroController player, long peerId)
+    {
+        int entityId = RegisterAuthorityEntity(player);
+        if (entityId <= 0) return 0;
+        if (!PeerOwnership.HasPeer(peerId) && !PeerOwnership.Assign(peerId, entityId))
+        {
+            EntityRegistry.Unregister(entityId);
+            return 0;
+        }
+        StateReplicator?.ObserveAuthoritativePlayer(player, entityId);
+        return entityId;
+    }
+
+    private int RegisterAuthorityEntity(Node node)
+    {
+        NetworkIdentity identity = node.GetNodeOrNull<NetworkIdentity>("NetworkIdentity");
+        if (identity != null && identity.IsValid && EntityRegistry.Contains(identity.NetworkEntityId))
+            return identity.NetworkEntityId;
+
+        if (identity != null && identity.IsValid)
+        {
+            node.RemoveChild(identity);
+            identity.QueueFree();
+            identity = null;
+        }
+        identity ??= new NetworkIdentity { Name = "NetworkIdentity" };
+        if (identity.GetParent() == null) node.AddChild(identity);
+        int entityId = EntityRegistry.AllocateId();
+        return identity.Assign(entityId) && EntityRegistry.Register(entityId, node) ? entityId : 0;
+    }
+
+    public void RegisterAuthoritativeMinion(MinionController minion)
+    {
+        int entityId = RegisterAuthorityEntity(minion);
+        if (entityId > 0) { StateReplicator.ObserveAuthoritativeWorld(minion, entityId); StateReplicator.PublishMinionSpawn(minion, entityId); }
+    }
+
+    public void RegisterReplicaWorldEntity(Node3D entity, int entityId) => RegisterReplicaEntity(entity, entityId);
+
+    private void RegisterReplicaEntity(Node node, int entityId)
+    {
+        NetworkIdentity identity = node.GetNodeOrNull<NetworkIdentity>("NetworkIdentity");
+        if (identity != null && identity.IsValid && identity.NetworkEntityId != entityId)
+        {
+            node.RemoveChild(identity);
+            identity.QueueFree();
+            identity = null;
+        }
+        identity ??= new NetworkIdentity { Name = "NetworkIdentity" };
+        if (identity.GetParent() == null) node.AddChild(identity);
+        if (identity.Assign(entityId)) EntityRegistry.Register(entityId, node);
+    }
+
+    private void RegisterFixedAuthorityEntities()
+    {
+        if (GetTree().CurrentScene == null) return;
+        foreach (Node node in GetTree().GetNodesInGroup("combat_units"))
+        {
+            if (node is EnemyController || node is TowerController || node is MinionController)
+            {
+                int entityId = RegisterAuthorityEntity(node);
+                if (entityId > 0) StateReplicator.ObserveAuthoritativeWorld((Node3D)node, entityId);
+            }
+        }
+    }
+
+    private void SynchronizeSceneIdentityReplicas(long peerId)
+    {
+        foreach (Node node in GetTree().GetNodesInGroup("combat_units"))
+        {
+            if (node is not HeroController && node is not EnemyController && node is not TowerController) continue;
+            int entityId = GetEntityId(node);
+            if (entityId > 0) RpcId(peerId, nameof(RegisterSceneEntityReplica), node.Name, entityId);
+        }
     }
 }

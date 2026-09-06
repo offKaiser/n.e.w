@@ -1,0 +1,32 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="PackedScene" path="res://Scenes/Units/Tower.tscn" id="1_tower"]
+[ext_resource type="PackedScene" path="res://Scenes/Units/Minion.tscn" id="2_minion"]
+[sub_resource type="BoxMesh" id="ground_mesh"]
+size = Vector3(35, 0.3, 20)
+[sub_resource type="BoxShape3D" id="ground_shape"]
+size = Vector3(35, 0.3, 20)
+
+[node name="TowerCombatTest" type="Node3D"]
+[node name="Ground" type="StaticBody3D" parent="."]
+[node name="Mesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("ground_mesh")
+[node name="Collision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("ground_shape")
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -30, 0)
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 14, 16)
+current = true
+[node name="BlueTower" parent="." instance=ExtResource("1_tower")]
+Team = 0
+[node name="BlueMinion" parent="." instance=ExtResource("2_minion")]
+position = Vector3(-3, 0.6, -2)
+Team = 0
+Type = 0
+LaneDirection = Vector3(1, 0, 0)
+[node name="RedMinion" parent="." instance=ExtResource("2_minion")]
+position = Vector3(6, 0.6, 0)
+Team = 1
+Type = 0
+LaneDirection = Vector3(-1, 0, 0)

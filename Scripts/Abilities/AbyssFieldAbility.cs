@@ -11,7 +11,7 @@ public partial class AbyssFieldAbility : Ability
         AbyssField field = new AbyssField();
         caster.GetParent().AddChild(field);
         field.GlobalPosition = center;
-        field.Configure(caster, Radius, Damage * RankMultiplier, 5.0f);
+        field.Configure(caster, Radius, Damage * RankMultiplier, 5.0f, target);
         return true;
     }
 }

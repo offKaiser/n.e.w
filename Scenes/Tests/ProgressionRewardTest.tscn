@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Heroes/ProgressionComponent.cs" id="1_progression"]
+[ext_resource type="Script" path="res://Scripts/Tests/ProgressionRewardHarness.cs" id="2_harness"]
+
+[node name="ProgressionRewardTest" type="Node3D"]
+script = ExtResource("2_harness")
+[node name="Player" type="Node3D" parent="."]
+[node name="ProgressionComponent" type="Node" parent="Player"]
+script = ExtResource("1_progression")

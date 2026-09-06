@@ -1,0 +1,167 @@
+[gd_scene load_steps=19 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Heroes/HeroController.cs" id="1_hero"]
+[ext_resource type="Script" path="res://Scripts/Heroes/MovementComponent.cs" id="2_movement"]
+[ext_resource type="Script" path="res://Scripts/Heroes/TargetingComponent.cs" id="3_targeting"]
+[ext_resource type="Script" path="res://Scripts/Combat/HealthComponent.cs" id="4_health"]
+[ext_resource type="Script" path="res://Scripts/Combat/CombatComponent.cs" id="5_combat"]
+[ext_resource type="Script" path="res://Scripts/Heroes/ManaComponent.cs" id="6_mana"]
+[ext_resource type="Script" path="res://Scripts/Heroes/AbyssEnergyComponent.cs" id="7_energy"]
+[ext_resource type="Script" path="res://Scripts/Abilities/AbilityController.cs" id="8_ability_controller"]
+[ext_resource type="Script" path="res://Scripts/Abilities/AreaDamageAbility.cs" id="9_ability_q"]
+[ext_resource type="Script" path="res://Scripts/Abilities/SlowAbility.cs" id="10_ability_w"]
+[ext_resource type="Script" path="res://Scripts/Abilities/DashAbility.cs" id="11_ability_e"]
+[ext_resource type="Script" path="res://Scripts/Abilities/AbyssFieldAbility.cs" id="12_ability_r"]
+[ext_resource type="Script" path="res://Scripts/Tests/TrainingDummy.cs" id="13_dummy"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_ground"]
+size = Vector3(36, 0.3, 28)
+
+[sub_resource type="BoxShape3D" id="BoxShape_ground"]
+size = Vector3(36, 0.3, 28)
+
+[sub_resource type="StandardMaterial3D" id="Material_ground"]
+albedo_color = Color(0.1, 0.15, 0.12, 1)
+roughness = 0.95
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_hero"]
+radius = 0.45
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_hero"]
+radius = 0.45
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="Material_hero"]
+albedo_color = Color(0.38, 0.08, 0.78, 1)
+metallic = 0.2
+roughness = 0.35
+
+[sub_resource type="CylinderShape3D" id="CylinderShape_dummy"]
+radius = 0.65
+height = 2.2
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_dummy"]
+top_radius = 0.65
+bottom_radius = 0.65
+height = 2.2
+
+[sub_resource type="StandardMaterial3D" id="Material_dummy"]
+albedo_color = Color(0.85, 0.18, 0.16, 1)
+roughness = 0.5
+
+[node name="CoreGameplayTest" type="Node3D"]
+
+[node name="Ground" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
+material_override = SubResource("Material_ground")
+mesh = SubResource("BoxMesh_ground")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("BoxShape_ground")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -30, 0)
+light_energy = 1.3
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 16, 16)
+current = true
+
+[node name="NyrVela" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0.9, 0)
+script = ExtResource("1_hero")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="NyrVela"]
+shape = SubResource("CapsuleShape_hero")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="NyrVela"]
+material_override = SubResource("Material_hero")
+mesh = SubResource("CapsuleMesh_hero")
+
+[node name="MovementComponent" type="Node" parent="NyrVela"]
+script = ExtResource("2_movement")
+Speed = 8.0
+DestinationStopDistance = 0.15
+
+[node name="TargetingComponent" type="Node" parent="NyrVela"]
+script = ExtResource("3_targeting")
+
+[node name="CombatComponent" type="Node" parent="NyrVela"]
+script = ExtResource("5_combat")
+AttackDamage = 25.0
+AttackRange = 3.0
+AttackCooldown = 1.0
+
+[node name="HealthComponent" type="Node" parent="NyrVela"]
+script = ExtResource("4_health")
+MaxHealth = 250.0
+EnableLegacyRewards = false
+EnableLegacyPresentation = false
+
+[node name="ManaComponent" type="Node" parent="NyrVela"]
+script = ExtResource("6_mana")
+MaxMana = 300.0
+
+[node name="AbyssEnergyComponent" type="Node" parent="NyrVela"]
+script = ExtResource("7_energy")
+
+[node name="AbilityQ" type="Node" parent="NyrVela"]
+script = ExtResource("9_ability_q")
+Cooldown = 3.0
+ManaCost = 30.0
+Range = 10.0
+Damage = 40.0
+Radius = 3.0
+EnableLegacyVfx = false
+
+[node name="AbilityW" type="Node" parent="NyrVela"]
+script = ExtResource("10_ability_w")
+Cooldown = 5.0
+ManaCost = 40.0
+Range = 9.0
+Damage = 20.0
+Duration = 2.5
+EnableLegacyVfx = false
+
+[node name="AbilityE" type="Node" parent="NyrVela"]
+script = ExtResource("11_ability_e")
+Cooldown = 6.0
+ManaCost = 35.0
+Range = 10.0
+DashDistance = 4.0
+EnableLegacyVfx = false
+
+[node name="AbilityR" type="Node" parent="NyrVela"]
+script = ExtResource("12_ability_r")
+Cooldown = 12.0
+ManaCost = 80.0
+Range = 12.0
+Damage = 50.0
+Radius = 5.0
+
+[node name="AbilityController" type="Node" parent="NyrVela"]
+script = ExtResource("8_ability_controller")
+
+[node name="TrainingDummy" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 1.1, 0)
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("13_dummy")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TrainingDummy"]
+shape = SubResource("CylinderShape_dummy")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TrainingDummy"]
+material_override = SubResource("Material_dummy")
+mesh = SubResource("CylinderMesh_dummy")
+
+[node name="HealthComponent" type="Node" parent="TrainingDummy"]
+script = ExtResource("4_health")
+MaxHealth = 500.0
+EnableLegacyRewards = false
+EnableLegacyPresentation = true

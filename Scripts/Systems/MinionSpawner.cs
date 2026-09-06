@@ -61,7 +61,7 @@ public partial class MinionSpawner : Node3D
             float rowOffset = (index / 3) * 1.8f;
             minion.GlobalPosition = GlobalPosition + Vector3.Forward * sideOffset - LaneDirection * rowOffset;
             if (network != null && network.SessionActive && network.IsServer)
-                network.ReplicateMinionSpawn(minion);
+                network.RegisterAuthoritativeMinion(minion);
         }
     }
 

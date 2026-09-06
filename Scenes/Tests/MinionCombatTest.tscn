@@ -1,0 +1,44 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="PackedScene" path="res://Scenes/Units/Minion.tscn" id="1_minion"]
+[sub_resource type="BoxMesh" id="ground_mesh"]
+size = Vector3(40, 0.3, 20)
+[sub_resource type="BoxShape3D" id="ground_shape"]
+size = Vector3(40, 0.3, 20)
+[sub_resource type="StandardMaterial3D" id="ground_mat"]
+albedo_color = Color(0.08, 0.12, 0.1, 1)
+
+[node name="MinionCombatTest" type="Node3D"]
+[node name="Ground" type="StaticBody3D" parent="."]
+[node name="Mesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("ground_mesh")
+material_override = SubResource("ground_mat")
+[node name="Collision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("ground_shape")
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55, -30, 0)
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 14, 16)
+current = true
+[node name="BlueMinions" type="Node3D" parent="."]
+[node name="BlueMelee" parent="BlueMinions" instance=ExtResource("1_minion")]
+position = Vector3(-7, 0.6, -1)
+Team = 0
+Type = 0
+LaneDirection = Vector3(1, 0, 0)
+[node name="BlueRanged" parent="BlueMinions" instance=ExtResource("1_minion")]
+position = Vector3(-8, 0.6, 1)
+Team = 0
+Type = 2
+LaneDirection = Vector3(1, 0, 0)
+[node name="RedMinions" type="Node3D" parent="."]
+[node name="RedMelee" parent="RedMinions" instance=ExtResource("1_minion")]
+position = Vector3(7, 0.6, -1)
+Team = 1
+Type = 0
+LaneDirection = Vector3(-1, 0, 0)
+[node name="RedRanged" parent="RedMinions" instance=ExtResource("1_minion")]
+position = Vector3(8, 0.6, 1)
+Team = 1
+Type = 2
+LaneDirection = Vector3(-1, 0, 0)

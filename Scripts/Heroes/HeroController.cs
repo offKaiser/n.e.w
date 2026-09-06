@@ -1,9 +1,11 @@
 using Godot;
 
-public partial class HeroController : CharacterBody3D
+public partial class HeroController : CharacterBody3D, IStatusEffectReceiver, ITeamMember
 {
     [Export]
     public MinionTeam Team = MinionTeam.Blue;
+
+    TeamId ITeamMember.TeamId => Team == MinionTeam.Red ? TeamId.Red : TeamId.Blue;
 
     [Export]
     public float Speed = 8.0f;
@@ -14,27 +16,26 @@ public partial class HeroController : CharacterBody3D
     [Export]
     public float ClickRayLength = 500.0f;
 
-    private Vector3 _destination;
-    private bool _hasDestination;
     private MeshInstance3D _destinationMarker;
+    private MovementComponent _movement;
+    private TargetingComponent _targeting;
     private CombatComponent _combat;
-    private Ability _abilityQ;
-    private Ability _abilityW;
-    private Ability _abilityE;
-    private Ability _abilityR;
+    private AbilityController _abilityController;
     private float _speedMultiplier = 1.0f;
     private double _speedBoostEndTime;
-    private double _nextNetworkSyncTime;
 
     public override void _Ready()
     {
         AddToGroup("combat_units");
         _destinationMarker = GetNodeOrNull<MeshInstance3D>("../DestinationMarker");
+        _movement = GetNodeOrNull<MovementComponent>("MovementComponent");
+        _targeting = GetNodeOrNull<TargetingComponent>("TargetingComponent");
+        EnsureCoreComponents();
+        SynchronizeMovementSettings();
         _combat = GetNodeOrNull<CombatComponent>("CombatComponent");
-        _abilityQ = GetNodeOrNull<Ability>("AbilityQ");
-        _abilityW = GetNodeOrNull<Ability>("AbilityW");
-        _abilityE = GetNodeOrNull<Ability>("AbilityE");
-        _abilityR = GetNodeOrNull<Ability>("AbilityR");
+        _abilityController = GetNodeOrNull<AbilityController>("AbilityController");
+        EnsureAbilityController();
+        EnsureRewardComponent();
         if (_destinationMarker != null)
         {
             _destinationMarker.Visible = false;
@@ -85,33 +86,54 @@ public partial class HeroController : CharacterBody3D
 
         Node hitNode = hit["collider"].AsGodotObject() as Node;
         HealthComponent target = hitNode?.GetNodeOrNull<HealthComponent>("HealthComponent");
-        if (target != null && target.IsAlive && _combat != null)
+        if (target != null && target.IsAlive)
         {
-            _hasDestination = false;
+            _movement.ClearDestination();
             HideDestinationMarker();
-            _combat.SetTarget(target);
+            NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
+            if (network != null && network.SessionActive)
+            {
+                int targetEntityId = network.GetEntityId(target.GetParent());
+                if (targetEntityId > 0)
+                {
+                    network.IntentRouter.RequestBasicAttack(targetEntityId);
+                    return;
+                }
+            }
+            _targeting.SetTarget(target);
+            _combat?.SetTarget(target);
             return;
         }
 
+        _targeting.ClearTarget();
         _combat?.ClearTarget();
-        _destination = (Vector3)hit["position"];
-        _hasDestination = true;
+        Vector3 destination = (Vector3)hit["position"];
+        NetworkManager movementNetwork = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
+        if (movementNetwork != null && movementNetwork.SessionActive)
+        {
+            movementNetwork.IntentRouter.RequestMove(destination);
+            return;
+        }
+        _movement.SetDestination(destination);
 
         if (_destinationMarker != null)
         {
-            _destinationMarker.GlobalPosition = _destination + Vector3.Up * 0.06f;
+            _destinationMarker.GlobalPosition = destination + Vector3.Up * 0.06f;
             _destinationMarker.Visible = true;
         }
     }
 
     public override void _PhysicsProcess(double delta)
     {
-        if (!IsMultiplayerAuthority())
+        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
+        bool readsLocalInput = IsMultiplayerAuthority();
+        bool simulatesRemoteAuthority = network != null && network.IsServer && network.IsControlledEntity(this);
+        if (!readsLocalInput && !simulatesRemoteAuthority)
         {
             return;
         }
 
-        if (Input.IsActionJustPressed("ability_q"))
+        if (readsLocalInput && Input.IsActionJustPressed("ability_q"))
         {
             TryCastAbility("Q");
         }
@@ -131,33 +153,33 @@ public partial class HeroController : CharacterBody3D
             TryCastAbility("R");
         }
 
-        Vector2 inputDirection = Input.GetVector("move_left", "move_right", "move_forward", "move_backward");
+        Vector2 inputDirection = readsLocalInput ? Input.GetVector("move_left", "move_right", "move_forward", "move_backward") : Vector2.Zero;
         Vector3 direction;
+        SynchronizeMovementSettings();
 
         if (inputDirection != Vector2.Zero)
         {
-            _hasDestination = false;
+            _movement.ClearDestination();
             HideDestinationMarker();
+            _targeting.ClearTarget();
             _combat?.ClearTarget();
             direction = new Vector3(inputDirection.X, 0.0f, inputDirection.Y);
         }
-        else if (_combat != null && _combat.HasValidTarget)
+        else if (_targeting.HasValidTarget)
         {
-            direction = GetAttackTargetDirection();
+            direction = GetAttackTargetDirection(_targeting.CurrentTarget);
         }
         else
         {
-            direction = GetDestinationDirection();
+            _combat?.ClearTarget();
+            direction = _movement.GetDestinationDirection();
+            if (!_movement.HasDestination)
+            {
+                HideDestinationMarker();
+            }
         }
 
-        Velocity = new Vector3(
-            direction.X * GetCurrentSpeed(),
-            Velocity.Y,
-            direction.Z * GetCurrentSpeed()
-        );
-
-        MoveAndSlide();
-        PublishNetworkTransform();
+        _movement.MoveInDirection(direction, GetCurrentSpeed());
     }
 
     public void ApplyNetworkTransform(Vector3 position, Vector3 rotation)
@@ -166,71 +188,70 @@ public partial class HeroController : CharacterBody3D
         Rotation = rotation;
     }
 
-    public Ability GetAbility(string slot) => slot switch
-    {
-        "Q" => _abilityQ,
-        "W" => _abilityW,
-        "E" => _abilityE,
-        "R" => _abilityR,
-        _ => null
-    };
+    public Ability GetAbility(string slot) => _abilityController?.GetAbility(slot);
 
     public bool TryCastAbilityLocal(string slot, HealthComponent target)
     {
-        return GetAbility(slot)?.TryCast(this, target) ?? false;
+        return _abilityController?.TryCast(slot, target) ?? false;
     }
 
     public void ReduceAbilityCooldowns(float seconds)
     {
-        _abilityQ?.ReduceCooldown(seconds);
-        _abilityW?.ReduceCooldown(seconds);
-        _abilityE?.ReduceCooldown(seconds);
-        _abilityR?.ReduceCooldown(seconds);
+        _abilityController?.GetAbility("Q")?.ReduceCooldown(seconds);
+        _abilityController?.GetAbility("W")?.ReduceCooldown(seconds);
+        _abilityController?.GetAbility("E")?.ReduceCooldown(seconds);
+        _abilityController?.GetAbility("R")?.ReduceCooldown(seconds);
     }
 
     private void TryCastAbility(string slot)
     {
         NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        if (network != null && network.SessionActive && !network.IsServer)
+        if (network != null && network.SessionActive)
         {
-            network.RequestAbilityCast(this, slot, _combat?.CurrentTarget);
+            HealthComponent target = GetCurrentTarget();
+            int targetEntityId = target == null ? 0 : network.GetEntityId(target.GetParent());
+            network.IntentRouter.RequestAbilityCast(slot, targetEntityId, GlobalPosition, target != null, true);
             return;
         }
-        TryCastAbilityLocal(slot, _combat?.CurrentTarget);
+        TryCastAbilityLocal(slot, GetCurrentTarget());
     }
 
     public bool TryIncreaseAbilityLocal(string slot)
     {
-        return GetAbility(slot)?.TryIncreaseRank(GetNodeOrNull<ProgressionComponent>("ProgressionComponent")) ?? false;
+        return _abilityController?.TryIncreaseRank(slot, GetNodeOrNull<ProgressionComponent>("ProgressionComponent")) ?? false;
     }
 
     private void TryIncreaseAbility(string slot)
     {
         NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        if (network != null && network.SessionActive && !network.IsServer)
+        if (network != null && network.SessionActive)
         {
-            network.RequestAbilityUpgrade(this, slot);
+            network.IntentRouter.RequestAbilityUpgrade(slot);
             return;
         }
         TryIncreaseAbilityLocal(slot);
-    }
-
-    private void PublishNetworkTransform()
-    {
-        if (Time.GetTicksMsec() / 1000.0 < _nextNetworkSyncTime)
-        {
-            return;
-        }
-
-        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        network?.PublishPlayerTransform(Name, GlobalPosition, Rotation);
-        _nextNetworkSyncTime = Time.GetTicksMsec() / 1000.0 + 0.05;
     }
 
     public void ActivateSpeedBoost(float multiplier, float duration)
     {
         _speedMultiplier = Mathf.Max(_speedMultiplier, multiplier);
         _speedBoostEndTime = Time.GetTicksMsec() / 1000.0 + duration;
+    }
+
+    public void ApplyMoveIntent(Vector3 destination)
+    {
+        _targeting?.ClearTarget();
+        _combat?.ClearTarget();
+        _movement?.SetDestination(destination);
+        HideDestinationMarker();
+    }
+
+    public void ApplyBasicAttackIntent(HealthComponent target)
+    {
+        _movement?.ClearDestination();
+        HideDestinationMarker();
+        _targeting?.SetTarget(target);
+        _combat?.SetTarget(target);
     }
 
     public void ApplySlow(float multiplier, float duration)
@@ -249,42 +270,26 @@ public partial class HeroController : CharacterBody3D
         return Speed * _speedMultiplier;
     }
 
-    private Vector3 GetAttackTargetDirection()
+    private Vector3 GetAttackTargetDirection(HealthComponent target)
     {
-        Vector3 offset = _combat.TargetPosition - GlobalPosition;
-        offset.Y = 0.0f;
+        if (target == null || _combat == null)
+        {
+            return Vector3.Zero;
+        }
 
-        if (offset.LengthSquared() <= _combat.AttackRange * _combat.AttackRange)
+        _combat.SetTarget(target);
+        if (_combat.IsTargetInRange(GlobalPosition))
         {
             _combat.TryAttack(GlobalPosition);
             return Vector3.Zero;
         }
 
-        Vector3 direction = offset.Normalized();
-        LookAt(GlobalPosition + direction, Vector3.Up, true);
-        return direction;
+        return _combat.GetApproachDirection(GlobalPosition);
     }
 
-    private Vector3 GetDestinationDirection()
+    private HealthComponent GetCurrentTarget()
     {
-        if (!_hasDestination)
-        {
-            return Vector3.Zero;
-        }
-
-        Vector3 offset = _destination - GlobalPosition;
-        offset.Y = 0.0f;
-
-        if (offset.LengthSquared() <= DestinationStopDistance * DestinationStopDistance)
-        {
-            _hasDestination = false;
-            HideDestinationMarker();
-            return Vector3.Zero;
-        }
-
-        Vector3 direction = offset.Normalized();
-        LookAt(GlobalPosition + direction, Vector3.Up, true);
-        return direction;
+        return _targeting?.CurrentTarget ?? _combat?.CurrentTarget;
     }
 
     private void HideDestinationMarker()
@@ -293,5 +298,50 @@ public partial class HeroController : CharacterBody3D
         {
             _destinationMarker.Visible = false;
         }
+    }
+
+    private void EnsureCoreComponents()
+    {
+        // Main.tscn remains untouched during this migration. These runtime
+        // fallbacks keep its existing serialized Hero node operational.
+        if (_movement == null)
+        {
+            _movement = new MovementComponent { Name = "MovementComponent" };
+            AddChild(_movement);
+        }
+
+        if (_targeting == null)
+        {
+            _targeting = new TargetingComponent { Name = "TargetingComponent" };
+            AddChild(_targeting);
+        }
+    }
+
+    private void SynchronizeMovementSettings()
+    {
+        if (_movement == null)
+        {
+            return;
+        }
+
+        // Keep the existing HeroController exports as a compatibility bridge
+        // until Main.tscn is migrated in a later approved phase.
+        _movement.Speed = Speed;
+        _movement.DestinationStopDistance = DestinationStopDistance;
+    }
+
+    private void EnsureAbilityController()
+    {
+        if (_abilityController == null)
+        {
+            _abilityController = new AbilityController { Name = "AbilityController" };
+            AddChild(_abilityController);
+        }
+    }
+
+    private void EnsureRewardComponent()
+    {
+        if (GetNodeOrNull<RewardComponent>("RewardComponent") == null)
+            AddChild(new RewardComponent { Name = "RewardComponent", GoldReward = 300, ExperienceReward = 350 });
     }
 }

@@ -7,13 +7,16 @@ public partial class DelayedAbyssExplosion : Node3D
     private float _radius;
     private float _damage;
     private float _remaining;
+    private bool _showVisual;
 
-    public void Configure(Node3D caster, float radius, float damage, float delay)
+    public void Configure(Node3D caster, float radius, float damage, float delay, bool showVisual = true)
     {
         _caster = caster;
         _radius = radius;
         _damage = damage;
         _remaining = delay;
+        _showVisual = showVisual;
+        if (!_showVisual) return;
         CylinderMesh mesh = new CylinderMesh { TopRadius = radius * 0.35f, BottomRadius = radius * 0.35f, Height = 0.05f };
         StandardMaterial3D material = new StandardMaterial3D { AlbedoColor = new Color(0.13f, 0.01f, 0.32f, 0.7f), EmissionEnabled = true, Emission = new Color(0.3f, 0.02f, 0.7f), Transparency = BaseMaterial3D.TransparencyEnum.Alpha };
         AddChild(new MeshInstance3D { Mesh = mesh, MaterialOverride = material, Position = Vector3.Up * 0.05f });
@@ -30,9 +33,15 @@ public partial class DelayedAbyssExplosion : Node3D
             Vector3 offset = unit.GlobalPosition - GlobalPosition; offset.Y = 0;
             if (health != null && health.IsAlive && offset.LengthSquared() <= _radius * _radius) AbyssPassive.DealAbilityDamage(_caster, health, _damage);
         }
-        TimedVfx burst = new TimedVfx(); GetParent().AddChild(burst);
-        burst.GlobalPosition = GlobalPosition + Vector3.Up * 0.3f;
-        burst.Configure(new Color(0.47f, 0.05f, 1.0f), _radius, 0.5f);
+        if (_showVisual)
+        {
+            TimedVfx burst = new TimedVfx(); GetParent().AddChild(burst);
+            burst.GlobalPosition = GlobalPosition + Vector3.Up * 0.3f;
+            burst.Configure(new Color(0.47f, 0.05f, 1.0f), _radius, 0.5f);
+        }
+        // The timer above is authoritative on the host. Remote clients only
+        // draw their burst after this resolution event arrives.
+        NetworkPresentationReplicator.RequestDelayedShadowExplosionPresentation(_caster, GlobalPosition, 0.5f);
         QueueFree();
     }
 }

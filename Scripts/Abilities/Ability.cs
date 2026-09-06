@@ -24,6 +24,8 @@ public abstract partial class Ability : Node
     [Export] public int MaxRank = 5;
     [Export] public float RankDamageBonus = 0.15f;
     public int Rank { get; private set; } = 1;
+    public event System.Action<int> RankChanged;
+    public event System.Action<float> CooldownChanged;
     public float RankMultiplier => 1.0f + (Rank - 1) * RankDamageBonus;
 
     private double _nextCastTime;
@@ -33,21 +35,22 @@ public abstract partial class Ability : Node
     public void SynchronizeCooldown(float remaining)
     {
         _nextCastTime = Time.GetTicksMsec() / 1000.0 + Mathf.Max(0.0f, remaining);
+        CooldownChanged?.Invoke(RemainingCooldown);
     }
 
     public void ReduceCooldown(float seconds)
     {
         _nextCastTime = Mathf.Max(Time.GetTicksMsec() / 1000.0, _nextCastTime - seconds);
+        CooldownChanged?.Invoke(RemainingCooldown);
     }
 
-    public bool TryCast(Node3D caster, HealthComponent target)
+    public bool TryCast(Node3D caster, HealthComponent target, ManaComponent mana)
     {
         if (!CanCast(caster, target))
         {
             return false;
         }
 
-        ManaComponent mana = caster.GetNodeOrNull<ManaComponent>("ManaComponent");
         if (mana != null && !mana.TrySpend(ManaCost))
         {
             return false;
@@ -59,24 +62,33 @@ public abstract partial class Ability : Node
         }
 
         _nextCastTime = Time.GetTicksMsec() / 1000.0 + Cooldown;
+        CooldownChanged?.Invoke(RemainingCooldown);
         return true;
+    }
+
+    // Compatibility adapter for callers not yet migrated to AbilityController.
+    public bool TryCast(Node3D caster, HealthComponent target)
+    {
+        return TryCast(caster, target, caster?.GetNodeOrNull<ManaComponent>("ManaComponent"));
     }
 
     public bool TryIncreaseRank(ProgressionComponent progression)
     {
         if (Rank >= MaxRank || !progression.TrySpendSkillPoint()) return false;
         Rank++;
+        RankChanged?.Invoke(Rank);
         return true;
     }
 
     public void SynchronizeRank(int rank)
     {
         Rank = Mathf.Clamp(rank, 1, MaxRank);
+        RankChanged?.Invoke(Rank);
     }
 
     protected abstract bool Execute(Node3D caster, HealthComponent target);
 
-    private bool CanCast(Node3D caster, HealthComponent target)
+    public bool CanCast(Node3D caster, HealthComponent target)
     {
         if (Time.GetTicksMsec() / 1000.0 < _nextCastTime)
         {

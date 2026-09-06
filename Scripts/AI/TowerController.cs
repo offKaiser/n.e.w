@@ -1,136 +1,92 @@
 using Godot;
 
-public partial class TowerController : StaticBody3D
+/// <summary>Target-priority decision layer for a stationary ranged tower.</summary>
+public partial class TowerController : StaticBody3D, ITeamMember
 {
-    [Export]
-    public MinionTeam Team = MinionTeam.Blue;
-
-    [Export]
-    public float DetectionRange = 12.0f;
-
-    [Export]
-    public float AttackRange = 8.0f;
-
-    [Export]
-    public float AttackDamage = 15.0f;
-
-    [Export]
-    public float AttackCooldown = 1.0f;
+    [Export] public MinionTeam Team = MinionTeam.Blue;
+    [Export] public float DetectionRange = 12.0f;
+    [Export] public float AttackRange = 8.0f;
+    [Export] public float AttackDamage = 15.0f;
+    [Export] public float AttackCooldown = 1.0f;
+    public bool RemoteRepresentation { get; set; }
+    TeamId ITeamMember.TeamId => Team == MinionTeam.Red ? TeamId.Red : TeamId.Blue;
 
     private HealthComponent _health;
-    private Node3D _target;
-    private double _nextAttackTime;
+    private TargetingComponent _targeting;
+    private CombatComponent _combat;
 
     public override void _Ready()
     {
         AddToGroup("combat_units");
         _health = GetNodeOrNull<HealthComponent>("HealthComponent");
+        _targeting = GetNodeOrNull<TargetingComponent>("TargetingComponent");
+        _combat = GetNodeOrNull<CombatComponent>("CombatComponent");
+        EnsureCoreComponents();
+        if (GetNodeOrNull<RewardComponent>("RewardComponent") == null) AddChild(new RewardComponent { Name = "RewardComponent", GoldReward = 250, ExperienceReward = 500 });
+        _combat.AttackDelivery += DeliverTowerShot;
         ApplyTeamMaterial();
+    }
+
+    public override void _ExitTree()
+    {
+        if (_combat != null) _combat.AttackDelivery -= DeliverTowerShot;
     }
 
     public override void _PhysicsProcess(double delta)
     {
-        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        if (network != null && network.SessionActive && !network.IsServer)
-        {
-            return;
-        }
-
+        if (RemoteRepresentation) return;
         if (_health == null || !_health.IsAlive)
         {
-            return;
+            _targeting?.ClearTarget(); _combat?.ClearTarget(); return;
         }
-
-        _target = FindClosestEnemyUnit();
-        if (_target == null)
+        HealthComponent target = _targeting.CurrentTarget ?? FindPriorityTarget();
+        if (target == null) return;
+        _targeting.SetTarget(target); _combat.SetTarget(target);
+        if (_combat.IsTargetInRange(GlobalPosition))
         {
-            return;
+            Node3D owner = target.GetParent<Node3D>();
+            if (owner != null) LookAt(owner.GlobalPosition, Vector3.Up, true);
+            _combat.TryAttack(GlobalPosition);
         }
-
-        LookAt(_target.GlobalPosition, Vector3.Up, true);
-        TryAttackTarget();
     }
 
-    private Node3D FindClosestEnemyUnit()
+    private HealthComponent FindPriorityTarget()
     {
-        Node3D closest = null;
-        float closestDistanceSquared = DetectionRange * DetectionRange;
-
+        HealthComponent bestMinion = null, bestOther = null;
+        float bestMinionDistance = DetectionRange * DetectionRange, bestOtherDistance = bestMinionDistance;
         foreach (Node node in GetTree().GetNodesInGroup("combat_units"))
         {
-            if (node is not Node3D candidate || !IsEnemy(candidate))
-            {
-                continue;
-            }
-
+            if (node is not Node3D candidate || candidate == this || !CombatTeams.IsEnemy(this, candidate)) continue;
             HealthComponent health = candidate.GetNodeOrNull<HealthComponent>("HealthComponent");
-            if (health == null || !health.IsAlive)
-            {
-                continue;
-            }
-
-            Vector3 offset = candidate.GlobalPosition - GlobalPosition;
-            offset.Y = 0.0f;
-            float distanceSquared = offset.LengthSquared();
-            if (distanceSquared < closestDistanceSquared)
-            {
-                closest = candidate;
-                closestDistanceSquared = distanceSquared;
-            }
+            if (health == null || !health.IsAlive) continue;
+            Vector3 offset = candidate.GlobalPosition - GlobalPosition; offset.Y = 0.0f;
+            float distance = offset.LengthSquared(); if (distance > DetectionRange * DetectionRange) continue;
+            if (candidate.IsInGroup("minions") && distance < bestMinionDistance) { bestMinion = health; bestMinionDistance = distance; }
+            else if (distance < bestOtherDistance) { bestOther = health; bestOtherDistance = distance; }
         }
-
-        return closest;
+        return bestMinion ?? bestOther;
     }
 
-    private bool IsEnemy(Node3D candidate)
+    private bool DeliverTowerShot(HealthComponent target, float damage, Node source)
     {
-        return candidate switch
-        {
-            MinionController minion => minion.Team != Team,
-            HeroController hero => hero.Team != Team,
-            EnemyController enemy => enemy.Team != Team,
-            _ => false
-        };
+        if (target?.GetParent<Node3D>() is not Node3D targetNode) return false;
+        DamageProjectile projectile = new DamageProjectile();
+        Color color = Team == MinionTeam.Blue ? new Color(0.25f, 0.7f, 1.0f) : new Color(1.0f, 0.28f, 0.22f);
+        projectile.Configure(targetNode, target, source, damage, 18.0f, color, ProjectileVisualType.TowerShot);
+        GetParent().AddChild(projectile); projectile.GlobalPosition = GlobalPosition + Vector3.Up * 4.0f;
+        return true;
     }
 
-    private void TryAttackTarget()
+    private void EnsureCoreComponents()
     {
-        if (_target == null)
-        {
-            return;
-        }
-
-        Vector3 offset = _target.GlobalPosition - GlobalPosition;
-        offset.Y = 0.0f;
-        if (offset.LengthSquared() > AttackRange * AttackRange)
-        {
-            return;
-        }
-
-        double currentTime = Time.GetTicksMsec() / 1000.0;
-        if (currentTime < _nextAttackTime)
-        {
-            return;
-        }
-
-        _target.GetNode<HealthComponent>("HealthComponent").TakeDamage(AttackDamage, this);
-        _nextAttackTime = currentTime + AttackCooldown;
+        if (_targeting == null) { _targeting = new TargetingComponent { Name = "TargetingComponent" }; AddChild(_targeting); }
+        if (_combat == null) { _combat = new CombatComponent { Name = "CombatComponent" }; AddChild(_combat); }
+        _combat.AttackRange = AttackRange; _combat.AttackDamage = AttackDamage; _combat.AttackCooldown = AttackCooldown;
     }
 
     private void ApplyTeamMaterial()
     {
-        MeshInstance3D mesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
-        if (mesh == null)
-        {
-            return;
-        }
-
-        StandardMaterial3D material = new StandardMaterial3D();
-        material.AlbedoColor = Team == MinionTeam.Blue
-            ? new Color(0.08f, 0.3f, 0.95f)
-            : new Color(0.95f, 0.08f, 0.12f);
-        material.Metallic = 0.25f;
-        material.Roughness = 0.3f;
-        mesh.MaterialOverride = material;
+        MeshInstance3D mesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D"); if (mesh == null) return;
+        mesh.MaterialOverride = new StandardMaterial3D { AlbedoColor = Team == MinionTeam.Blue ? new Color(0.08f, 0.3f, 0.95f) : new Color(0.95f, 0.08f, 0.12f), Metallic = 0.25f, Roughness = 0.3f };
     }
 }

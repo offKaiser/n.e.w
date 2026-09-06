@@ -4,6 +4,12 @@ public static class CombatTeams
 {
     public static bool IsEnemy(Node3D caster, Node3D unit)
     {
+        if (caster is ITeamMember casterTeam && unit is ITeamMember unitTeam)
+        {
+            return casterTeam.TeamId != TeamId.Neutral && unitTeam.TeamId != TeamId.Neutral && casterTeam.TeamId != unitTeam.TeamId;
+        }
+
+        // Compatibility fallback until minions and towers are migrated.
         MinionTeam team = caster switch
         {
             HeroController hero => hero.Team,

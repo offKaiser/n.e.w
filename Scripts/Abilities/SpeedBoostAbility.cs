@@ -10,13 +10,12 @@ public partial class SpeedBoostAbility : Ability
 
     protected override bool Execute(Node3D caster, HealthComponent target)
     {
-        HeroController hero = caster as HeroController;
-        if (hero == null)
+        if (caster is not IStatusEffectReceiver statusReceiver)
         {
             return false;
         }
 
-        hero.ActivateSpeedBoost(SpeedMultiplier, Duration);
+        statusReceiver.ActivateSpeedBoost(SpeedMultiplier, Duration);
         TimedVfx vfx = new TimedVfx();
         caster.GetParent().AddChild(vfx);
         vfx.GlobalPosition = caster.GlobalPosition + Vector3.Up;

@@ -8,8 +8,9 @@ public partial class DamageProjectile : Node3D
     private float _damage;
     private float _speed;
     private Color _color;
+    private ProjectileVisualType _visualType = ProjectileVisualType.GenericMagic;
 
-    public void Configure(Node3D target, HealthComponent targetHealth, Node source, float damage, float speed, Color color)
+    public void Configure(Node3D target, HealthComponent targetHealth, Node source, float damage, float speed, Color color, ProjectileVisualType visualType = ProjectileVisualType.GenericMagic)
     {
         _target = target;
         _targetHealth = targetHealth;
@@ -17,10 +18,12 @@ public partial class DamageProjectile : Node3D
         _damage = damage;
         _speed = speed;
         _color = color;
+        _visualType = visualType;
     }
 
     public override void _Ready()
     {
+        if (_source is Node3D source) NetworkPresentationReplicator.PublishProjectileLaunch(source, _target, _visualType, _speed, _color);
         SphereMesh mesh = new SphereMesh { Radius = 0.16f, Height = 0.32f };
         StandardMaterial3D material = new StandardMaterial3D
         {
@@ -56,6 +59,7 @@ public partial class DamageProjectile : Node3D
         if (offset.LengthSquared() <= travelDistance * travelDistance)
         {
             _targetHealth.TakeDamage(_damage, _source);
+            if (_source is Node3D source) NetworkPresentationReplicator.PublishProjectileImpact(source, _target, _visualType, targetPosition);
             QueueFree();
             return;
         }

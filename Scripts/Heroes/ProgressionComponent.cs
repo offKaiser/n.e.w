@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 public partial class ProgressionComponent : Node
@@ -13,10 +14,17 @@ public partial class ProgressionComponent : Node
 
     public int Level { get; private set; } = 1;
     public int Experience { get; private set; }
+    public int CurrentLevel => Level;
+    public int CurrentExperience => Experience;
     public int SkillPoints { get; private set; } = 1;
     public int ExperienceToNextLevel => GetExperienceToNextLevel();
+    public event Action<int, int> ExperienceChanged;
+    public event Action<int> LevelChanged;
+    public event Action<int> SkillPointsChanged;
 
-    public void GainExperience(int amount)
+    public void GainExperience(int amount) => AddExperience(amount);
+
+    public void AddExperience(int amount)
     {
         if (amount <= 0 || Level >= MaxLevel)
         {
@@ -29,10 +37,11 @@ public partial class ProgressionComponent : Node
             Experience -= GetExperienceToNextLevel();
             Level++;
             SkillPoints++;
+            LevelChanged?.Invoke(Level);
+            SkillPointsChanged?.Invoke(SkillPoints);
             GD.Print($"{GetParent().Name} alcancou o nivel {Level}.");
         }
-        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        network?.BroadcastProgression(GetPath(), Level, Experience, SkillPoints);
+        ExperienceChanged?.Invoke(Experience, ExperienceToNextLevel);
     }
 
     public bool TrySpendSkillPoint()
@@ -43,16 +52,20 @@ public partial class ProgressionComponent : Node
         }
 
         SkillPoints--;
-        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        network?.BroadcastProgression(GetPath(), Level, Experience, SkillPoints);
+        SkillPointsChanged?.Invoke(SkillPoints);
         return true;
     }
+
+    public bool CanSpendSkillPoint() => SkillPoints > 0;
 
     public void SynchronizeProgression(int level, int experience, int skillPoints)
     {
         Level = level;
         Experience = experience;
         SkillPoints = skillPoints;
+        ExperienceChanged?.Invoke(Experience, ExperienceToNextLevel);
+        LevelChanged?.Invoke(Level);
+        SkillPointsChanged?.Invoke(SkillPoints);
     }
 
     private int GetExperienceToNextLevel()

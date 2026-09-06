@@ -136,35 +136,29 @@ mesh = SubResource("PlaneMesh_x15ge")
 [node name="Biomes" type="Node3D" parent="." unique_id=1530351795]
 
 [node name="MapArt" type="Node3D" parent="Biomes" unique_id=998262158]
-visible = false
 
 [node name="Snow" type="MeshInstance3D" parent="Biomes" unique_id=187962826]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 0.01, -25)
-visible = false
 material_override = SubResource("StandardMaterial_snow")
 mesh = SubResource("PlaneMesh_biome")
 
 [node name="Desert" type="MeshInstance3D" parent="Biomes" unique_id=738059907]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 0.01, -25)
-visible = false
 material_override = SubResource("StandardMaterial_desert")
 mesh = SubResource("PlaneMesh_biome")
 
 [node name="Forest" type="MeshInstance3D" parent="Biomes" unique_id=1321888207]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 0.01, 25)
-visible = false
 material_override = SubResource("StandardMaterial_forest")
 mesh = SubResource("PlaneMesh_biome")
 
 [node name="Abyss" type="MeshInstance3D" parent="Biomes" unique_id=1830632976]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 0.01, 25)
-visible = false
 material_override = SubResource("StandardMaterial_abyss")
 mesh = SubResource("PlaneMesh_biome")
 
 [node name="CentralLane" type="MeshInstance3D" parent="." unique_id=1111321424]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.04, 0)
-visible = false
 material_override = SubResource("StandardMaterial_lane")
 mesh = SubResource("PlaneMesh_lane")
 
@@ -175,7 +169,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.1, 0)
 shape = SubResource("BoxShape3D_map_collision")
 
 [node name="DestinationMarker" type="MeshInstance3D" parent="." unique_id=1585342395]
-visible = false
 material_override = SubResource("StandardMaterial_destination")
 mesh = SubResource("CylinderMesh_destination")
 
@@ -339,8 +332,6 @@ outline_size = 8
 script = ExtResource("4_health")
 MaxHealth = 560.0
 HealthLabelPath = NodePath("../HealthLabel")
-ExperienceReward = 350
-GoldReward = 300
 
 [node name="TestEnvironment" type="Node3D" parent="." unique_id=1481852459]
 visible = false

@@ -7,8 +7,7 @@ public static class AbyssPassive
         AbyssEnergyComponent passive = caster.GetNodeOrNull<AbyssEnergyComponent>("AbyssEnergyComponent");
         float bonus = passive?.ConsumeEmpowerment() ?? 0.0f;
         target.TakeDamage(damage + bonus, caster);
-        ApplyMark(caster, target, bonus);
-        passive?.GainFromAbility();
+        if (bonus > 0.0f) ApplyMark(caster, target, 3.0f);
     }
 
     public static void DealBasicDamage(Node3D caster, HealthComponent target, float damage)
@@ -16,12 +15,11 @@ public static class AbyssPassive
         AbyssEnergyComponent passive = caster.GetNodeOrNull<AbyssEnergyComponent>("AbyssEnergyComponent");
         float bonus = passive?.ConsumeEmpowerment() ?? 0.0f;
         target.TakeDamage(damage + bonus, caster);
-        ApplyMark(caster, target, bonus);
+        if (bonus > 0.0f) ApplyMark(caster, target, 3.0f);
     }
 
-    private static void ApplyMark(Node3D caster, HealthComponent target, float bonus)
+    public static void ApplyMark(Node3D caster, HealthComponent target, float duration)
     {
-        if (bonus <= 0.0f) return;
         Node owner = target.GetParent();
         AbyssMark mark = owner.GetNodeOrNull<AbyssMark>("AbyssMark");
         if (mark == null)
@@ -29,6 +27,6 @@ public static class AbyssPassive
             mark = new AbyssMark { Name = "AbyssMark" };
             owner.AddChild(mark);
         }
-        mark.Apply(caster, 3.0f);
+        mark.Apply(caster, duration);
     }
 }

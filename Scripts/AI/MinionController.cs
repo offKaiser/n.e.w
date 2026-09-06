@@ -1,241 +1,149 @@
 using Godot;
 
-public enum MinionTeam
+public enum MinionTeam { Blue, Red }
+public enum MinionType { Melee, Tank, Ranged }
+
+/// <summary>Lane/target decision layer. Shared components execute gameplay.</summary>
+public partial class MinionController : CharacterBody3D, ITeamMember, IStatusEffectReceiver
 {
-    Blue,
-    Red
-}
+    [Export] public float Speed = 2.5f;
+    [Export] public float DetectionRange = 5.0f;
+    [Export] public float AttackRange = 1.6f;
+    [Export] public float AttackDamage = 8.0f;
+    [Export] public float AttackCooldown = 1.0f;
 
-public enum MinionType
-{
-    Melee,
-    Tank,
-    Ranged
-}
-
-public partial class MinionController : CharacterBody3D
-{
-    [Export]
-    public float Speed = 2.5f;
-
-    [Export]
-    public float DetectionRange = 5.0f;
-
-    [Export]
-    public float AttackRange = 1.6f;
-
-    [Export]
-    public float AttackDamage = 8.0f;
-
-    [Export]
-    public float AttackCooldown = 1.0f;
-
-    public MinionTeam Team { get; private set; }
-    public MinionType Type { get; private set; } = MinionType.Melee;
-    public Vector3 LaneDirection { get; private set; } = Vector3.Right;
+    [Export] public MinionTeam Team { get; set; }
+    [Export] public MinionType Type { get; set; } = MinionType.Melee;
+    [Export] public Vector3 LaneDirection { get; set; } = Vector3.Right;
+    public bool RemoteRepresentation { get; set; }
+    TeamId ITeamMember.TeamId => Team == MinionTeam.Red ? TeamId.Red : TeamId.Blue;
 
     private HealthComponent _health;
-    private Node3D _target;
-    private double _nextAttackTime;
+    private MovementComponent _movement;
+    private TargetingComponent _targeting;
+    private CombatComponent _combat;
     private float _slowMultiplier = 1.0f;
     private double _slowEndTime;
-    private double _nextNetworkSyncTime;
 
     public void Configure(MinionTeam team, Vector3 laneDirection, MinionType type)
     {
-        Team = team;
-        LaneDirection = laneDirection.Normalized();
-        Type = type;
+        Team = team; LaneDirection = laneDirection.Normalized(); Type = type;
     }
 
     public override void _Ready()
     {
-        AddToGroup("minions");
-        AddToGroup("combat_units");
+        AddToGroup("minions"); AddToGroup("combat_units");
         _health = GetNodeOrNull<HealthComponent>("HealthComponent");
-        ApplyTypeStats();
-        ApplyTeamMaterial();
+        _movement = GetNodeOrNull<MovementComponent>("MovementComponent");
+        _targeting = GetNodeOrNull<TargetingComponent>("TargetingComponent");
+        _combat = GetNodeOrNull<CombatComponent>("CombatComponent");
+        EnsureCoreComponents();
+        ApplyTypeStats(); ApplyTeamMaterial();
+        EnsureRewardComponent();
+        if (Type == MinionType.Ranged) _combat.AttackDelivery += DeliverRangedAttack;
+    }
+
+    public override void _ExitTree()
+    {
+        if (_combat != null) _combat.AttackDelivery -= DeliverRangedAttack;
     }
 
     public override void _PhysicsProcess(double delta)
     {
-        NetworkManager network = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        if (network != null && network.SessionActive && !network.IsServer) return;
+        if (RemoteRepresentation) return;
         if (_health == null || !_health.IsAlive)
         {
-            Velocity = Vector3.Zero;
-            PublishNetworkTransform(network); return;
+            _targeting?.ClearTarget(); _combat?.ClearTarget(); _movement?.MoveInDirection(Vector3.Zero); return;
         }
 
-        _target = FindClosestEnemy();
-        if (_target == null)
+        HealthComponent target = _targeting.CurrentTarget;
+        if (target == null)
         {
-            MoveAlongLane();
-            PublishNetworkTransform(network); return;
+            target = FindClosestEnemy();
+            if (target == null) { _movement.MoveInDirection(LaneDirection, GetCurrentSpeed()); return; }
+            _targeting.SetTarget(target);
         }
 
-        Vector3 offset = _target.GlobalPosition - GlobalPosition;
-        offset.Y = 0.0f;
-
-        if (offset.LengthSquared() > AttackRange * AttackRange)
+        _combat.SetTarget(target);
+        if (_combat.IsTargetInRange(GlobalPosition))
         {
-            Vector3 direction = offset.Normalized();
-            LookAt(GlobalPosition + direction, Vector3.Up, true);
-            Velocity = direction * GetCurrentSpeed();
-            MoveAndSlide();
-            PublishNetworkTransform(network); return;
+            _movement.MoveInDirection(Vector3.Zero);
+            _combat.TryAttack(GlobalPosition);
+            return;
         }
-
-        LookAt(_target.GlobalPosition, Vector3.Up, true);
-        Velocity = Vector3.Zero;
-        TryAttackTarget();
-        PublishNetworkTransform(network);
+        _movement.MoveInDirection(_combat.GetApproachDirection(GlobalPosition), GetCurrentSpeed());
     }
 
-    public void ApplyNetworkTransform(Vector3 position, Vector3 rotation)
+    public void ApplySlow(float multiplier, float duration)
     {
-        GlobalPosition = position;
-        Rotation = rotation;
+        _slowMultiplier = Mathf.Min(_slowMultiplier, multiplier);
+        _slowEndTime = Mathf.Max(_slowEndTime, Time.GetTicksMsec() / 1000.0 + duration);
     }
+    public void ActivateSpeedBoost(float multiplier, float duration) { }
+    public void ApplyNetworkTransform(Vector3 position, Vector3 rotation) { GlobalPosition = position; Rotation = rotation; }
 
-    private void PublishNetworkTransform(NetworkManager network)
+    private HealthComponent FindClosestEnemy()
     {
-        if (network == null || !network.SessionActive || !network.IsServer || Time.GetTicksMsec() / 1000.0 < _nextNetworkSyncTime) return;
-        network.PublishMinionTransform(Name, GlobalPosition, Rotation);
-        _nextNetworkSyncTime = Time.GetTicksMsec() / 1000.0 + 0.1;
-    }
-
-    private Node3D FindClosestEnemy()
-    {
-        Node3D closest = null;
-        float closestDistanceSquared = DetectionRange * DetectionRange;
-
+        HealthComponent closest = null; float best = DetectionRange * DetectionRange;
         foreach (Node node in GetTree().GetNodesInGroup("combat_units"))
         {
-            if (node is not Node3D candidate || candidate == this || !IsEnemy(candidate))
-            {
-                continue;
-            }
-
+            if (node is not Node3D candidate || candidate == this || !CombatTeams.IsEnemy(this, candidate)) continue;
             HealthComponent health = candidate.GetNodeOrNull<HealthComponent>("HealthComponent");
-            if (health == null || !health.IsAlive)
-            {
-                continue;
-            }
-
-            Vector3 offset = candidate.GlobalPosition - GlobalPosition;
-            offset.Y = 0.0f;
-            float distanceSquared = offset.LengthSquared();
-            if (distanceSquared < closestDistanceSquared)
-            {
-                closest = candidate;
-                closestDistanceSquared = distanceSquared;
-            }
+            if (health == null || !health.IsAlive) continue;
+            Vector3 offset = candidate.GlobalPosition - GlobalPosition; offset.Y = 0;
+            if (offset.LengthSquared() < best) { best = offset.LengthSquared(); closest = health; }
         }
-
         return closest;
     }
 
-    private bool IsEnemy(Node3D candidate)
+    private bool DeliverRangedAttack(HealthComponent target, float damage, Node source)
     {
-        return candidate switch
-        {
-            MinionController minion => minion.Team != Team,
-            TowerController tower => tower.Team != Team,
-            _ => false
-        };
-    }
-
-    private void MoveAlongLane()
-    {
-        LookAt(GlobalPosition + LaneDirection, Vector3.Up, true);
-        Velocity = LaneDirection * GetCurrentSpeed();
-        MoveAndSlide();
-    }
-
-    private void TryAttackTarget()
-    {
-        double currentTime = Time.GetTicksMsec() / 1000.0;
-        if (currentTime < _nextAttackTime)
-        {
-            return;
-        }
-
-        HealthComponent targetHealth = _target.GetNode<HealthComponent>("HealthComponent");
-        if (Type == MinionType.Ranged)
-        {
-            LaunchProjectile(targetHealth);
-        }
-        else
-        {
-            targetHealth.TakeDamage(AttackDamage, this);
-        }
-        _nextAttackTime = currentTime + AttackCooldown;
-    }
-
-    private void LaunchProjectile(HealthComponent targetHealth)
-    {
+        if (Type != MinionType.Ranged || target?.GetParent<Node3D>() is not Node3D targetNode) return false;
         DamageProjectile projectile = new DamageProjectile();
-        Color projectileColor = Team == MinionTeam.Blue ? new Color(0.25f, 0.7f, 1.0f) : new Color(1.0f, 0.28f, 0.22f);
-        projectile.Configure(_target, targetHealth, this, AttackDamage, 14.0f, projectileColor);
-        GetParent().AddChild(projectile);
-        projectile.GlobalPosition = GlobalPosition + Vector3.Up * 0.85f;
+        Color color = Team == MinionTeam.Blue ? new Color(0.25f, 0.7f, 1.0f) : new Color(1.0f, 0.28f, 0.22f);
+        projectile.Configure(targetNode, target, source, damage, 14.0f, color, ProjectileVisualType.MinionRanged);
+        GetParent().AddChild(projectile); projectile.GlobalPosition = GlobalPosition + Vector3.Up * 0.85f;
+        return true;
     }
 
-    private void ApplyTeamMaterial()
+    private void EnsureCoreComponents()
     {
-        MeshInstance3D mesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
-        if (mesh == null)
-        {
-            return;
-        }
-
-        StandardMaterial3D material = new StandardMaterial3D();
-        material.AlbedoColor = Team == MinionTeam.Blue
-            ? new Color(0.12f, 0.42f, 1.0f)
-            : new Color(1.0f, 0.16f, 0.2f);
-        material.Roughness = 0.45f;
-        mesh.MaterialOverride = material;
-        mesh.Scale = Type switch
-        {
-            MinionType.Tank => new Vector3(1.35f, 1.35f, 1.35f),
-            MinionType.Ranged => new Vector3(0.8f, 0.8f, 0.8f),
-            _ => Vector3.One
-        };
+        if (_movement == null) { _movement = new MovementComponent { Name = "MovementComponent" }; AddChild(_movement); }
+        if (_targeting == null) { _targeting = new TargetingComponent { Name = "TargetingComponent" }; AddChild(_targeting); }
+        if (_combat == null) { _combat = new CombatComponent { Name = "CombatComponent" }; AddChild(_combat); }
     }
 
     private void ApplyTypeStats()
     {
         switch (Type)
         {
-            case MinionType.Tank:
-                Speed = 2.0f;
-                AttackRange = 1.7f;
-                AttackDamage = 10.0f;
-                _health.SetMaxHealth(110.0f);
-                break;
-            case MinionType.Ranged:
-                Speed = 2.7f;
-                DetectionRange = 7.0f;
-                AttackRange = 6.0f;
-                AttackDamage = 7.0f;
-                _health.SetMaxHealth(35.0f);
-                break;
-            default:
-                _health.SetMaxHealth(50.0f);
-                break;
+            case MinionType.Tank: Speed = 2.0f; AttackRange = 1.7f; AttackDamage = 10.0f; _health.SetMaxHealth(110.0f); break;
+            case MinionType.Ranged: Speed = 2.7f; DetectionRange = 7.0f; AttackRange = 6.0f; AttackDamage = 7.0f; _health.SetMaxHealth(35.0f); break;
+            default: _health.SetMaxHealth(50.0f); break;
         }
+        _movement.Speed = Speed; _combat.AttackRange = AttackRange; _combat.AttackDamage = AttackDamage; _combat.AttackCooldown = AttackCooldown;
     }
 
-    public void ApplySlow(float multiplier, float duration)
+    private void EnsureRewardComponent()
     {
-        _slowMultiplier = Mathf.Min(_slowMultiplier, multiplier);
-        _slowEndTime = Time.GetTicksMsec() / 1000.0 + duration;
+        if (GetNodeOrNull<RewardComponent>("RewardComponent") != null) return;
+        RewardComponent reward = new RewardComponent { Name = "RewardComponent" };
+        if (Type == MinionType.Ranged) { reward.GoldReward = 14; reward.ExperienceReward = 25; }
+        else if (Type == MinionType.Tank) { reward.GoldReward = 25; reward.ExperienceReward = 60; }
+        else { reward.GoldReward = 20; reward.ExperienceReward = 40; }
+        AddChild(reward);
+    }
+
+    private void ApplyTeamMaterial()
+    {
+        MeshInstance3D mesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D"); if (mesh == null) return;
+        mesh.MaterialOverride = new StandardMaterial3D { AlbedoColor = Team == MinionTeam.Blue ? new Color(0.12f, 0.42f, 1.0f) : new Color(1.0f, 0.16f, 0.2f), Roughness = 0.45f };
+        mesh.Scale = Type == MinionType.Tank ? new Vector3(1.35f, 1.35f, 1.35f) : Type == MinionType.Ranged ? new Vector3(0.8f, 0.8f, 0.8f) : Vector3.One;
     }
 
     private float GetCurrentSpeed()
     {
         if (Time.GetTicksMsec() / 1000.0 >= _slowEndTime) _slowMultiplier = 1.0f;
-        return Speed * _slowMultiplier;
+        return _movement.Speed * _slowMultiplier;
     }
 }
