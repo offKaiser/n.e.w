@@ -1,0 +1,43 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://Scripts/AI/TowerController.cs" id="1_tower"]
+[ext_resource type="Script" path="res://Scripts/Combat/HealthComponent.cs" id="2_health"]
+[ext_resource type="Script" path="res://Scripts/AI/TowerVisual.cs" id="3_visual"]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_tower"]
+radius = 1.2
+height = 6.0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_tower"]
+top_radius = 0.8
+bottom_radius = 1.2
+height = 6.0
+
+[node name="Tower" type="StaticBody3D"]
+collision_layer = 2
+script = ExtResource("1_tower")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 3, 0)
+shape = SubResource("CylinderShape3D_tower")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+position = Vector3(0, 3, 0)
+mesh = SubResource("CylinderMesh_tower")
+
+[node name="TowerVisual" type="Node3D" parent="."]
+script = ExtResource("3_visual")
+
+[node name="HealthLabel" type="Label3D" parent="."]
+position = Vector3(0, 6.6, 0)
+text = "400 / 400 HP"
+billboard = 1
+font_size = 42
+outline_size = 5
+
+[node name="HealthComponent" type="Node" parent="."]
+script = ExtResource("2_health")
+MaxHealth = 400.0
+ExperienceReward = 500
+GoldReward = 250
+HealthLabelPath = NodePath("../HealthLabel")
