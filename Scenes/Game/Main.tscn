@@ -4,24 +4,32 @@
 [ext_resource type="Script" uid="uid://csn57v7m0any7" path="res://Scripts/Core/CameraFollow.cs" id="2_camera_follow"]
 [ext_resource type="Script" uid="uid://dbdob0xp4foge" path="res://Scripts/Combat/CombatComponent.cs" id="3_combat"]
 [ext_resource type="Script" uid="uid://ck6itjngnhv8o" path="res://Scripts/Combat/HealthComponent.cs" id="4_health"]
-[ext_resource type="Script" uid="uid://d3l80lwnpmhba" path="res://Scripts/Abilities/DamageAbility.cs" id="5_damage_ability"]
 [ext_resource type="Script" uid="uid://rc1imsakf710" path="res://Scripts/Heroes/ManaComponent.cs" id="6_mana"]
-[ext_resource type="Script" uid="uid://bad53ijp67oys" path="res://Scripts/Abilities/SpeedBoostAbility.cs" id="7_speed_boost"]
 [ext_resource type="Script" uid="uid://b0rea3vtvawef" path="res://Scripts/AI/EnemyController.cs" id="8_enemy_controller"]
 [ext_resource type="Script" uid="uid://dkjo1kltqsosf" path="res://Scripts/Systems/MinionSpawner.cs" id="9_minion_spawner"]
 [ext_resource type="PackedScene" path="res://Scenes/Units/Minion.tscn" id="10_minion_scene"]
 [ext_resource type="PackedScene" path="res://Scenes/Units/Tower.tscn" id="11_tower_scene"]
 [ext_resource type="Script" uid="uid://m1mcx6ay1wok" path="res://Scripts/Systems/GameManager.cs" id="12_game_manager"]
-[ext_resource type="Script" path="res://Scripts/UI/GameHud.cs" id="13_game_hud"]
-[ext_resource type="Script" path="res://Scripts/Heroes/ProgressionComponent.cs" id="14_progression"]
-[ext_resource type="Script" path="res://Scripts/Heroes/GoldComponent.cs" id="15_gold"]
-[ext_resource type="Script" path="res://Scripts/Heroes/ChampionVisual.cs" id="16_champion_visual"]
-[ext_resource type="Script" path="res://Scripts/Abilities/AreaDamageAbility.cs" id="17_area_damage"]
-[ext_resource type="Script" path="res://Scripts/Abilities/SlowAbility.cs" id="18_slow_ability"]
-[ext_resource type="Script" path="res://Scripts/Abilities/DashAbility.cs" id="19_dash_ability"]
-[ext_resource type="Script" path="res://Scripts/Abilities/AbyssFieldAbility.cs" id="20_abyss_field"]
-[ext_resource type="Script" path="res://Scripts/Heroes/AbyssEnergyComponent.cs" id="21_abyss_energy"]
-[ext_resource type="Texture2D" path="res://Assets/Textures/Map/four_biomes_terrain.png" id="23_terrain_texture"]
+[ext_resource type="Script" uid="uid://b2iwse4jdv08m" path="res://Scripts/UI/GameHud.cs" id="13_game_hud"]
+[ext_resource type="Script" uid="uid://f3aw6rlr4it8" path="res://Scripts/Heroes/ProgressionComponent.cs" id="14_progression"]
+[ext_resource type="Script" uid="uid://dbu7lvrw6fjno" path="res://Scripts/Heroes/GoldComponent.cs" id="15_gold"]
+[ext_resource type="Script" uid="uid://dy0vjjpcdfnh7" path="res://Scripts/Heroes/ChampionVisual.cs" id="16_champion_visual"]
+[ext_resource type="Script" uid="uid://hfltyia8kntc" path="res://Scripts/Abilities/AreaDamageAbility.cs" id="17_area_damage"]
+[ext_resource type="Script" uid="uid://d1wfnp1qestx3" path="res://Scripts/Abilities/SlowAbility.cs" id="18_slow_ability"]
+[ext_resource type="Script" uid="uid://c5522errhvth6" path="res://Scripts/Abilities/DashAbility.cs" id="19_dash_ability"]
+[ext_resource type="Script" uid="uid://d3t5a33o24010" path="res://Scripts/Abilities/AbyssFieldAbility.cs" id="20_abyss_field"]
+[ext_resource type="Script" uid="uid://bbfhyclgneg31" path="res://Scripts/Heroes/AbyssEnergyComponent.cs" id="21_abyss_energy"]
+[ext_resource type="Texture2D" uid="uid://b0smmg6r7wq36" path="res://Assets/Textures/Map/four_biomes_terrain.png" id="23_terrain_texture"]
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 1
+background_color = Color(0.055, 0.085, 0.12, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.67, 0.77, 0.92, 1)
+ambient_light_energy = 0.8
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 0.55
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_ground"]
 albedo_color = Color(0.16, 0.22, 0.18, 1)
@@ -31,22 +39,12 @@ roughness = 0.9
 [sub_resource type="PlaneMesh" id="PlaneMesh_x15ge"]
 size = Vector2(100, 100)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_map_collision"]
-size = Vector3(100, 0.2, 100)
-
-[sub_resource type="PlaneMesh" id="PlaneMesh_lane"]
-size = Vector2(88, 10)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial_lane"]
-albedo_color = Color(0.34, 0.29, 0.22, 1)
-roughness = 0.82
-
-[sub_resource type="PlaneMesh" id="PlaneMesh_biome"]
-size = Vector2(48, 42)
-
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_snow"]
 albedo_color = Color(0.7, 0.84, 0.9, 1)
 roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_biome"]
+size = Vector2(48, 42)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_desert"]
 albedo_color = Color(0.72, 0.56, 0.28, 1)
@@ -61,20 +59,15 @@ albedo_color = Color(0.18, 0.07, 0.3, 1)
 emission_enabled = true
 emission = Color(0.08, 0.01, 0.18, 1)
 
-[sub_resource type="CylinderMesh" id="CylinderMesh_base"]
-top_radius = 4.5
-bottom_radius = 5.5
-height = 0.7
+[sub_resource type="StandardMaterial3D" id="StandardMaterial_lane"]
+albedo_color = Color(0.34, 0.29, 0.22, 1)
+roughness = 0.82
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial_base_blue"]
-albedo_color = Color(0.05, 0.28, 0.85, 1)
-emission_enabled = true
-emission = Color(0.01, 0.08, 0.35, 1)
+[sub_resource type="PlaneMesh" id="PlaneMesh_lane"]
+size = Vector2(88, 10)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial_base_red"]
-albedo_color = Color(0.85, 0.08, 0.1, 1)
-emission_enabled = true
-emission = Color(0.3, 0.01, 0.02, 1)
+[sub_resource type="BoxShape3D" id="BoxShape3D_map_collision"]
+size = Vector3(100, 0.2, 100)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_destination"]
 albedo_color = Color(1, 0.9, 0.1, 1)
@@ -86,6 +79,21 @@ top_radius = 0.7
 bottom_radius = 0.7
 height = 0.08
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial_base_blue"]
+albedo_color = Color(0.05, 0.28, 0.85, 1)
+emission_enabled = true
+emission = Color(0.01, 0.08, 0.35, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_base"]
+top_radius = 4.5
+bottom_radius = 5.5
+height = 0.7
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial_base_red"]
+albedo_color = Color(0.85, 0.08, 0.1, 1)
+emission_enabled = true
+emission = Color(0.3, 0.01, 0.02, 1)
+
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_x15ge"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_hero"]
@@ -94,6 +102,7 @@ metallic = 0.15
 roughness = 0.38
 
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_x15ge"]
+height = 2.1186523
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_enemy"]
 albedo_color = Color(0.9, 0.12, 0.15, 1)
@@ -115,59 +124,49 @@ albedo_color = Color(1, 0.18, 0.16, 1)
 [sub_resource type="StandardMaterial3D" id="StandardMaterial_marker_purple"]
 albedo_color = Color(0.7, 0.25, 1, 1)
 
-[sub_resource type="Environment" id="Environment_world"]
-background_mode = 1
-background_color = Color(0.055, 0.085, 0.12, 1)
-ambient_light_source = 3
-ambient_light_color = Color(0.67, 0.77, 0.92, 1)
-ambient_light_energy = 0.8
-tonemap_mode = 2
-glow_enabled = true
-glow_intensity = 0.55
-
 [node name="Game" type="Node3D" unique_id=1656723239]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1127624477]
 environment = SubResource("Environment_world")
 
 [node name="Map" type="MeshInstance3D" parent="." unique_id=1947731668]
 material_override = SubResource("StandardMaterial_ground")
 mesh = SubResource("PlaneMesh_x15ge")
 
-[node name="Biomes" type="Node3D" parent="."]
+[node name="Biomes" type="Node3D" parent="." unique_id=1530351795]
 
-[node name="MapArt" type="Node3D" parent="Biomes"]
+[node name="MapArt" type="Node3D" parent="Biomes" unique_id=998262158]
 visible = false
 
-[node name="Snow" type="MeshInstance3D" parent="Biomes"]
+[node name="Snow" type="MeshInstance3D" parent="Biomes" unique_id=187962826]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 0.01, -25)
 visible = false
-position = Vector3(-25, 0.01, -25)
-mesh = SubResource("PlaneMesh_biome")
 material_override = SubResource("StandardMaterial_snow")
-
-[node name="Desert" type="MeshInstance3D" parent="Biomes"]
-visible = false
-position = Vector3(25, 0.01, -25)
 mesh = SubResource("PlaneMesh_biome")
+
+[node name="Desert" type="MeshInstance3D" parent="Biomes" unique_id=738059907]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 0.01, -25)
+visible = false
 material_override = SubResource("StandardMaterial_desert")
-
-[node name="Forest" type="MeshInstance3D" parent="Biomes"]
-visible = false
-position = Vector3(-25, 0.01, 25)
 mesh = SubResource("PlaneMesh_biome")
+
+[node name="Forest" type="MeshInstance3D" parent="Biomes" unique_id=1321888207]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25, 0.01, 25)
+visible = false
 material_override = SubResource("StandardMaterial_forest")
-
-[node name="Abyss" type="MeshInstance3D" parent="Biomes"]
-visible = false
-position = Vector3(25, 0.01, 25)
 mesh = SubResource("PlaneMesh_biome")
-material_override = SubResource("StandardMaterial_abyss")
 
-[node name="CentralLane" type="MeshInstance3D" parent="."]
+[node name="Abyss" type="MeshInstance3D" parent="Biomes" unique_id=1830632976]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 0.01, 25)
 visible = false
-position = Vector3(0, 0.04, 0)
-mesh = SubResource("PlaneMesh_lane")
+material_override = SubResource("StandardMaterial_abyss")
+mesh = SubResource("PlaneMesh_biome")
+
+[node name="CentralLane" type="MeshInstance3D" parent="." unique_id=1111321424]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.04, 0)
+visible = false
 material_override = SubResource("StandardMaterial_lane")
+mesh = SubResource("PlaneMesh_lane")
 
 [node name="MapCollision" type="StaticBody3D" parent="." unique_id=106324686]
 
@@ -199,15 +198,15 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29, 0, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 0, 0)
 Team = 1
 
-[node name="BlueBase" type="MeshInstance3D" parent="."]
-position = Vector3(-43, 0.35, 0)
-mesh = SubResource("CylinderMesh_base")
+[node name="BlueBase" type="MeshInstance3D" parent="." unique_id=1867321547]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -43, 0.35, 0)
 material_override = SubResource("StandardMaterial_base_blue")
-
-[node name="RedBase" type="MeshInstance3D" parent="."]
-position = Vector3(43, 0.35, 0)
 mesh = SubResource("CylinderMesh_base")
+
+[node name="RedBase" type="MeshInstance3D" parent="." unique_id=1164842910]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43, 0.35, 0)
 material_override = SubResource("StandardMaterial_base_red")
+mesh = SubResource("CylinderMesh_base")
 
 [node name="GameManager" type="Node" parent="." unique_id=277895675]
 script = ExtResource("12_game_manager")
@@ -226,7 +225,7 @@ offset_bottom = 80.0
 theme_override_colors/font_color = Color(1, 0.9, 0.2, 1)
 theme_override_font_sizes/font_size = 28
 
-[node name="GameHud" type="Control" parent="GameUI"]
+[node name="GameHud" type="Control" parent="GameUI" unique_id=699379311]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -254,12 +253,12 @@ script = ExtResource("1_1wrua")
 shape = SubResource("CapsuleShape3D_x15ge")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Hero" unique_id=855139340]
+transform = Transform3D(1, 0, 0, 0, 0.9998574, -0.016885657, 0, 0.016885657, 0.9998574, 0, 0.059326172, 0)
 material_override = SubResource("StandardMaterial_hero")
 mesh = SubResource("CapsuleMesh_x15ge")
 
-[node name="ChampionVisual" type="Node3D" parent="Hero"]
+[node name="ChampionVisual" type="Node3D" parent="Hero" unique_id=343399564]
 script = ExtResource("16_champion_visual")
-Champion = 0
 
 [node name="CombatComponent" type="Node" parent="Hero" unique_id=908037359]
 script = ExtResource("3_combat")
@@ -280,13 +279,13 @@ script = ExtResource("4_health")
 MaxHealth = 520.0
 HealthLabelPath = NodePath("../HealthLabel")
 
-[node name="ProgressionComponent" type="Node" parent="Hero"]
+[node name="ProgressionComponent" type="Node" parent="Hero" unique_id=1448674465]
 script = ExtResource("14_progression")
 
-[node name="GoldComponent" type="Node" parent="Hero"]
+[node name="GoldComponent" type="Node" parent="Hero" unique_id=889111687]
 script = ExtResource("15_gold")
 
-[node name="AbyssEnergyComponent" type="Node" parent="Hero"]
+[node name="AbyssEnergyComponent" type="Node" parent="Hero" unique_id=567098153]
 script = ExtResource("21_abyss_energy")
 
 [node name="AbilityQ" type="Node" parent="Hero" unique_id=577272493]
@@ -294,24 +293,17 @@ script = ExtResource("17_area_damage")
 Cooldown = 5.0
 ManaCost = 60.0
 Range = 10.0
-Damage = 40.0
-Radius = 3.0
 
 [node name="AbilityW" type="Node" parent="Hero" unique_id=561723417]
 script = ExtResource("18_slow_ability")
 Cooldown = 12.0
 ManaCost = 70.0
 Range = 9.0
-SlowMultiplier = 0.55
-Duration = 2.5
-Damage = 15.0
 
 [node name="AbilityE" type="Node" parent="Hero" unique_id=362083045]
 script = ExtResource("19_dash_ability")
-Damage = 45.0
 Cooldown = 10.0
 ManaCost = 60.0
-DashDistance = 5.0
 
 [node name="AbilityR" type="Node" parent="Hero" unique_id=466104803]
 script = ExtResource("20_abyss_field")
@@ -332,7 +324,7 @@ shape = SubResource("CapsuleShape3D_x15ge")
 material_override = SubResource("StandardMaterial_enemy")
 mesh = SubResource("CapsuleMesh_x15ge")
 
-[node name="ChampionVisual" type="Node3D" parent="Enemy"]
+[node name="ChampionVisual" type="Node3D" parent="Enemy" unique_id=616529625]
 script = ExtResource("16_champion_visual")
 Champion = 1
 
@@ -346,9 +338,9 @@ outline_size = 8
 [node name="HealthComponent" type="Node" parent="Enemy" unique_id=1990150424]
 script = ExtResource("4_health")
 MaxHealth = 560.0
+HealthLabelPath = NodePath("../HealthLabel")
 ExperienceReward = 350
 GoldReward = 300
-HealthLabelPath = NodePath("../HealthLabel")
 
 [node name="TestEnvironment" type="Node3D" parent="." unique_id=1481852459]
 visible = false
